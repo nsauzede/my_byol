@@ -1,0 +1,4 @@
+doge = phrase*
+phrase = adjective noun
+adjective = "wow" | "many" | "so" | "such"
+noun = "lisp" | "language" | "c" | "book" | "build"
