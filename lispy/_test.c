@@ -3,22 +3,35 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-void expect_parse(char *input, long expected) {
+void assert_parse(char *input, long expected) {
     char *res = parse(input);
     ASSERT(!!res);
     EXPECT_EQ(expected, atoi(res));
     if (res) free(res);
 }
-TESTMETHOD(test2) {
-    expect_parse("+ 1 -2 6", 5);
+void assert_num(char *input, long expected) {
+    lval res = eval(input);
+    ASSERT(res.type == LVAL_NUM);
+    ASSERT_EQ(expected, res.num);
 }
-TESTMETHOD(ztest) {
-    expect_parse("max 1 5 3", 5);
-    expect_parse("min 1 5 3", 1);
-    expect_parse("^ 4 2", 16);
-    expect_parse("% 10 6", 4);
-    expect_parse("- (* 10 10) (+ 1 1 1)", 97);
-    expect_parse("* 10 (+ 1 51)", 520);
-    expect_parse("* 1 2 6", 12);
-    expect_parse("+ 1 2 6", 9);
+void expect_error(char *input, int error) {
+    lval res = eval(input);
+    ASSERT(res.type == LVAL_ERR);
+    ASSERT_EQ(error, res.err);
+}
+TESTMETHOD(test_div_zero) {
+    expect_error("/ 10 0", LERR_DIV_ZERO);
+}
+TESTMETHOD(test2) {
+    assert_parse("+ 1 -2 6", 5);
+}
+TESTMETHOD(test) {
+    assert_parse("max 1 5 3", 5);
+    assert_parse("min 1 5 3", 1);
+    assert_parse("^ 4 2", 16);
+    assert_parse("% 10 6", 4);
+    assert_parse("- (* 10 10) (+ 1 1 1)", 97);
+    assert_parse("* 10 (+ 1 51)", 520);
+    assert_parse("* 1 2 6", 12);
+    assert_parse("+ 1 2 6", 9);
 }
