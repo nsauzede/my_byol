@@ -133,7 +133,7 @@ lval eval(char *s) {
     }
     return res;
 }
-char *parse(char *s) {
+char *eval_parse(char *s) {
     char *res = 0;
     lval ret = eval(s);
     lval_println(ret);
@@ -155,7 +155,7 @@ int main() {
         if (!fgets(buf, sizeof(buf), stdin)) break;
         char *endl = strchr(buf, '\n');
         if (endl) *endl = 0;
-        char *res = parse(buf);
+        char *res = eval_parse(buf);
         if (res) free(res);
     }
     printf("Bye!\n");
