@@ -11,13 +11,16 @@ void assert_parse(char *input, long expected) {
 }
 void assert_num(char *input, long expected) {
     lval res = eval(input);
-    ASSERT(res.type == LVAL_NUM);
+    ASSERT_EQ(res.type, LVAL_NUM);
     ASSERT_EQ(expected, res.num);
 }
 void expect_error(char *input, int error) {
     lval res = eval(input);
-    ASSERT(res.type == LVAL_ERR);
+    ASSERT_EQ(res.type, LVAL_ERR);
     ASSERT_EQ(error, res.err);
+}
+TESTMETHOD(test_number_err) {
+    expect_error("+ 9999999999999999999 1", LERR_BAD_NUM);
 }
 TESTMETHOD(test_div_zero) {
     expect_error("/ 10 0", LERR_DIV_ZERO);

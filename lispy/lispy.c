@@ -66,7 +66,9 @@ void ast_print(int level, mpc_ast_t *a) {
 }
 lval ast_eval(mpc_ast_t *a) {
     if (strstr(a->tag, "number")) {
-        return lval_num(strtol(a->contents, NULL, 10));
+        errno = 0;
+        long num = strtol(a->contents, NULL, 10);
+        return errno==0?lval_num(num):lval_err(LERR_BAD_NUM);
     }
     char *op = a->children[1]->contents;
     lval ret = ast_eval(a->children[2]);
@@ -101,7 +103,7 @@ void *parse_lispy(char *s) {
     mpc_parser_t *Expr = mpc_new("expr");
     mpc_parser_t *Lispy = mpc_new("lispy");
     mpca_lang(MPCA_LANG_DEFAULT,
-        "number  : /-?[0-9]+/ ;\
+        "number  : /-?[0-9a]+/ ;\
         operator: '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" ;\
         expr    : <number> | '(' <operator> <expr>+ ')' ;\
         lispy   : /^/ <operator> <expr>+ /$/ ;",
