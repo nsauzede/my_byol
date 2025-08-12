@@ -4,7 +4,7 @@
 /***************************************************************/
 #include "ut/ut.h"
 void assert_parse(char *input, long expected) {
-    char *res = eval_parse(input);
+    char *res = eval_print(input);
     ASSERT(!!res);
     EXPECT_EQ(expected, atoi(res));
     if (res) free(res);

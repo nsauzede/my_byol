@@ -2,15 +2,20 @@
 /***************************************************************/
 #include <math.h>
 //#define DUMP_AST
-typedef struct {
+typedef struct lval {
     int type;
-    union {
-        long num;
-        int err;
-    };
+    // num
+    long num;
+    // err
+    int err;
+    // sym
+    char *sym;
+    // sexpr
+    int count;
+    struct lval **cell;
 } lval;
-enum { LVAL_NUM, LVAL_ERR };
-enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM, LERR_PARSE_ERROR };
+enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR };
+enum { LERR_DIV_ZERO, LERR_BAD_SYM, LERR_BAD_NUM, LERR_PARSE_ERROR };
 lval lval_num(long num) { return (lval){LVAL_NUM,.num=num}; }
 lval lval_err(int err) { return (lval){LVAL_ERR,.err=err}; }
 void lval_print(lval v) {
@@ -23,8 +28,8 @@ void lval_print(lval v) {
                 case LERR_DIV_ZERO:
                     printf("Error: Division By Zero!");
                     break;
-                case LERR_BAD_OP:
-                    printf("Error: Invalid Operator!");
+                case LERR_BAD_SYM:
+                    printf("Error: Invalid Symbol!");
                     break;
                 case LERR_BAD_NUM:
                     printf("Error: Invalid Number!");
@@ -89,15 +94,17 @@ int ast_count(int count, mpc_ast_t *a) {
 }
 void *parse_lispy(char *s) {
     mpc_parser_t *Number = mpc_new("number");
-    mpc_parser_t *Operator = mpc_new("operator");
+    mpc_parser_t *Symbol = mpc_new("symbol");
+    mpc_parser_t *Sexpr = mpc_new("sexpr");
     mpc_parser_t *Expr = mpc_new("expr");
     mpc_parser_t *Lispy = mpc_new("lispy");
     mpca_lang(MPCA_LANG_DEFAULT,
-        "number  : /-?[0-9a]+/ ;\
-        operator: '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" ;\
-        expr    : <number> | '(' <operator> <expr>+ ')' ;\
-        lispy   : /^/ <operator> <expr>+ /$/ ;",
-        Number, Operator, Expr, Lispy
+        "number : /-?[0-9a]+/ ;\
+        symbol  : '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" ;\
+        sexpr   : '(' <expr>* ')' ;\
+        expr    : <number> | <symbol> | <sexpr> ;\
+        lispy   : /^/ <expr>* /$/ ;",
+        Number, Symbol, Sexpr, Expr, Lispy
     );
     void *res = 0;
     mpc_result_t r;
@@ -110,7 +117,7 @@ void *parse_lispy(char *s) {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
     }
-    mpc_cleanup(4, Number, Operator, Expr, Lispy);
+    mpc_cleanup(5, Number, Symbol, Sexpr, Expr, Lispy);
     return res;
 }
 lval eval(char *s) {
@@ -123,7 +130,7 @@ lval eval(char *s) {
     }
     return res;
 }
-char *eval_parse(char *s) {
+char *eval_print(char *s) {
     char *res = 0;
     lval ret = eval(s);
     lval_println(ret);
@@ -145,7 +152,7 @@ int main() {
         if (!fgets(buf, sizeof(buf), stdin)) break;
         char *endl = strchr(buf, '\n');
         if (endl) *endl = 0;
-        char *res = eval_parse(buf);
+        char *res = eval_print(buf);
         if (res) free(res);
     }
     printf("Bye!\n");
