@@ -11,18 +11,8 @@ typedef struct {
 } lval;
 enum { LVAL_NUM, LVAL_ERR };
 enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM, LERR_PARSE_ERROR };
-lval lval_num(long num) {
-    lval v;
-    v.type = LVAL_NUM;
-    v.num = num;
-    return v;
-}
-lval lval_err(int err) {
-    lval v;
-    v.type = LVAL_ERR;
-    v.err = err;
-    return v;
-}
+lval lval_num(long num) { return (lval){LVAL_NUM,.num=num}; }
+lval lval_err(int err) { return (lval){LVAL_ERR,.err=err}; }
 void lval_print(lval v) {
     switch (v.type) {
         case LVAL_NUM:
