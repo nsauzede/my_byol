@@ -66,7 +66,7 @@ void ast_print(int level, mpc_ast_t *a) {
 }
 lval ast_eval(mpc_ast_t *a) {
     if (strstr(a->tag, "number")) {
-        return lval_num(atoi(a->contents));
+        return lval_num(strtol(a->contents, NULL, 10));
     }
     char *op = a->children[1]->contents;
     lval ret = ast_eval(a->children[2]);
