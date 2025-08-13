@@ -4,11 +4,13 @@
 /***************************************************************/
 #include "ut/ut.h"
 void assert_num(char *input, long expected) {
+#if 1
 {
     lval res = eval0(input);
     ASSERT_EQ(res.type, LVAL_NUM);
     ASSERT_EQ(expected, res.num);
-}return;
+}//return;
+#endif
     lval *res = eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_NUM);
@@ -16,11 +18,13 @@ void assert_num(char *input, long expected) {
     lval_del(res);
 }
 void expect_error(char *input, int error) {
+#if 1
 {
     lval res = eval0(input);
     ASSERT_EQ(res.type, LVAL_ERR);
     ASSERT_EQ(error, res.err0);
-}return;
+}//return;
+#endif
     lval *res = eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_ERR);

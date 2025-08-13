@@ -39,7 +39,7 @@ lval *lval_sexpr(void) {
     *ret = (lval){LVAL_SEXPR,.count=0,.cell=NULL};
     return ret;
 }
-lval *lval_err(char *err) {
+lval *lval_err(const char *err) {
     lval *ret = malloc(sizeof(lval));
 //    printf("%s: alloced %p\n", __func__, ret);
     *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1)};
@@ -68,6 +68,10 @@ void lval_del(lval *v) {
 //    printf("%s: freeing %p\n", __func__, v);
     free(v);
 }
+static const char *lerrors[] = {
+    [LERR_DIV_ZERO] = "Division By Zero!",
+    [LERR_BAD_NUM] = "Invalid Number!",
+};
 void lval_print0(lval v) {
     switch (v.type) {
         case LVAL_NUM:
@@ -76,13 +80,13 @@ void lval_print0(lval v) {
         case LVAL_ERR:
             switch (v.err0) {
                 case LERR_DIV_ZERO:
-                    printf("Error: Division By Zero!");
+                    printf("Error: %s", lerrors[LERR_DIV_ZERO]);
                     break;
                 case LERR_BAD_SYM:
                     printf("Error: Invalid Symbol!");
                     break;
                 case LERR_BAD_NUM:
-                    printf("Error: Invalid Number!");
+                    printf("Error: %s", lerrors[LERR_BAD_NUM]);
                     break;
                 case LERR_PARSE_ERROR:
                     printf("Error: Parse Error!");
@@ -163,7 +167,7 @@ lval ast_eval(mpc_ast_t *a) {
 lval *lval_read_num(mpc_ast_t *a) {
     errno = 0;
     long num = strtol(a->contents, NULL, 10);
-    return errno==0?lval_num(num):lval_err("Invalid Number!");
+    return errno==0?lval_num(num):lval_err(lerrors[LERR_BAD_NUM]);
 }
 lval *lval_add(lval *v, lval *x) {
     v->count++;
@@ -256,6 +260,86 @@ char *eval_print0(char *s) {
     return res;
 }
 #if 1
+lval *lval_pop(lval *v, int i) {
+    lval *x = v->cell[i];
+    memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count - i - 1));
+    v->count--;
+    // Valgrind doesn't like zero-realloc ?
+    //v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+    if (v->count == 0) {
+        free(v->cell);
+        v->cell = NULL;
+    } else {
+        v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+    }
+    return x;
+}
+lval *lval_take(lval *v, int i) {
+    lval *x = lval_pop(v, i);
+    lval_del(v);
+    return x;
+}
+lval *lval_eval_sexpr(lval *v);
+lval *lval_eval(lval *v) {
+    if (v->type == LVAL_SEXPR) {
+        return lval_eval_sexpr(v);
+    }
+    return v;
+}
+lval *builtin_op(lval *v, char *op) {
+    for (int i = 0; i < v->count; i++) {
+        if (v->cell[i]->type != LVAL_NUM) {
+            lval_del(v);
+            return lval_err("Cannot operate on non-number!");
+        }
+    }
+    lval *x = lval_pop(v, 0);
+    if (!strcmp(op, "-") && v->count == 0) {
+        x->num = -x->num;
+    }
+    while (v->count > 0) {
+        lval *y = lval_pop(v, 0);
+        if (!strcmp(op, "*")) x->num *= y->num;
+        if (!strcmp(op, "/")) {
+            if (y->num == 0) {
+                lval_del(x); lval_del(y);
+                x = lval_err(lerrors[LERR_DIV_ZERO]);
+                break;
+            }
+            x->num /= y->num;
+        }
+        if (!strcmp(op, "+")) x->num += y->num;
+        if (!strcmp(op, "-")) x->num -= y->num;
+        if (!strcmp(op, "%")) x->num %= y->num;
+        if (!strcmp(op, "^")) x->num = pow(x->num, y->num);
+        if (!strcmp(op, "min")) x->num = x->num>y->num?y->num:x->num;
+        if (!strcmp(op, "max")) x->num = x->num<y->num?y->num:x->num;
+        lval_del(y);
+    }
+    lval_del(v);
+    return x;
+}
+lval *lval_eval_sexpr(lval *v) {
+    if (v->type == LVAL_ERR) return v;
+    if (v->count == 0) return v;
+    for (int i = 0; i < v->count; i++) {
+        v->cell[i] = lval_eval(v->cell[i]);
+    }
+    for (int i = 0; i < v->count; i++) {
+        if (v->cell[i]->type == LVAL_ERR) {
+            return lval_take(v, i);
+        }
+    }
+    if (v->count == 1) return lval_take(v, 0);
+    lval *f = lval_pop(v, 0);
+    if (f->type != LVAL_SYM) {
+        lval_del(f); lval_del(v);
+        return lval_err("S-expression Does not start with symbol!");
+    }
+    lval *result = builtin_op(v, f->sym);
+    lval_del(f);
+    return result;
+}
 lval *eval(char *s) {
     mpc_result_t r;
     lval *res = NULL;
@@ -263,6 +347,7 @@ lval *eval(char *s) {
     if (r.output) {
         res = lval_read(r.output);
         mpc_ast_delete(r.output);
+        res = lval_eval_sexpr(res);
     } else {
         res = lval_err("parse error");
     }
