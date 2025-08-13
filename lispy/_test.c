@@ -3,7 +3,14 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-void assert_num(char *input, long expected) {
+void expect_flt(char *input, double expected) {
+    lval *res = eval(input);
+    ASSERT(!!res);
+    EXPECT_EQ(res->type, LVAL_FLT);
+    EXPECT_EQ(expected, res->flt);
+    lval_del(res);
+}
+void expect_num(char *input, long expected) {
     lval *res = eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_NUM);
@@ -14,29 +21,32 @@ void expect_error(char *input, int error) {
     lval *res = eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_ERR);
-    char *errors[] = {
-        [LERR_BAD_NUM] = "Invalid Number!",
-        [LERR_DIV_ZERO] = "Division By Zero!",
-    };
-    EXPECT_EQ(errors[error], res->err);
+    EXPECT_EQ(lerrors[error], res->err);
     lval_del(res);
 }
 TESTMETHOD(test_number_err) {
     expect_error("+ 9999999999999999999 1", LERR_BAD_NUM);
+    expect_error("+ 12 2a3", LERR_PARSE_ERROR);
 }
 TESTMETHOD(test_div_zero) {
     expect_error("/ 10 0", LERR_DIV_ZERO);
 }
-TESTMETHOD(test2) {
-    assert_num("+ 1 -2 6", 5);
+TESTMETHOD(test_flt_err) {
+    expect_error("+ 2 3.1", LERR_INVALID_OPERAND);
+    expect_error("+ 1.1 2.", LERR_PARSE_ERROR);
+}
+TESTMETHOD(test_flt) {
+    expect_flt("+ 1.2 1.3", 2.5);
+    expect_flt("* 2.0 3.14", 6.28);
 }
 TESTMETHOD(test) {
-    assert_num("max 1 5 3", 5);
-    assert_num("min 1 5 3", 1);
-    assert_num("^ 4 2", 16);
-    assert_num("% 10 6", 4);
-    assert_num("- (* 10 10) (+ 1 1 1)", 97);
-    assert_num("* 10 (+ 1 51)", 520);
-    assert_num("* 1 2 6", 12);
-    assert_num("+ 1 2 6", 9);
+    expect_num("+ 1 -2 6", 5);
+    expect_num("max 1 5 3", 5);
+    expect_num("min 1 5 3", 1);
+    expect_num("^ 4 2", 16);
+    expect_num("% 10 6", 4);
+    expect_num("- (* 10 10) (+ 1 1 1)", 97);
+    expect_num("* 10 (+ 1 51)", 520);
+    expect_num("* 1 2 6", 12);
+    expect_num("+ 1 2 6", 9);
 }

@@ -1,11 +1,11 @@
 TARGET:=lispy
 ifdef D
-GDB:=gdb -q -ex r --args
+RUN:=gdb -q -ex r --args
 else
-GDB:=valgrind -q --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=all --exit-on-first-error=yes --error-exitcode=128
+RUN:=valgrind -q --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=all --exit-on-first-error=yes --error-exitcode=128
 endif
 all: lispy
-	$(GDB) ./lispy
+	$(RUN) ./lispy
 lispy: CFLAGS=-O0 -g
 lispy: LDFLAGS=-lm
 clean:
