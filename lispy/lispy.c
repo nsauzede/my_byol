@@ -1,6 +1,16 @@
 //#define DUMP_AST
 #include "../mpc/mpc.c"
 /***************************************************************/
+const char *lispy_grammar =
+        "number  : /-?[0-9]+/ ;\
+        float   : /-?[0-9]+[.][0-9]+/ ;\
+        symbol  : '+' | '-' | '*' | '/' | '%' | '^' \
+                | \"list\" | \"eval\" | \"head\" | \"tail\" | \"join\" \
+                | \"min\" | \"max\" ;\
+        sexpr   : '(' <expr>* ')' ;\
+        qexpr   : '{' <expr>* '}' ;\
+        expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
+        lispy   : /^/ <expr>* /$/ ;";
 #include <math.h>
 typedef struct lval {
     int type;
@@ -8,7 +18,7 @@ typedef struct lval {
     double flt;
     char *err;
     char *sym;
-    // sexpr
+    // {S,Q}-expr
     int count;
     struct lval **cell;
 } lval;
@@ -224,14 +234,7 @@ void *parse_lispy(char *s) {
     mpc_parser_t *Qexpr = mpc_new("qexpr");
     mpc_parser_t *Expr = mpc_new("expr");
     mpc_parser_t *Lispy = mpc_new("lispy");
-    mpca_lang(MPCA_LANG_DEFAULT,
-        "number  : /-?[0-9]+/ ;\
-        float   : /-?[0-9]+[.][0-9]+/ ;\
-        symbol  : '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" ;\
-        sexpr   : '(' <expr>* ')' ;\
-        qexpr   : '{' <expr>* '}' ;\
-        expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
-        lispy   : /^/ <expr>* /$/ ;",
+    mpca_lang(MPCA_LANG_DEFAULT, lispy_grammar,
         Number, Float, Symbol, Sexpr, Qexpr, Expr, Lispy
     );
     void *res = 0;
@@ -258,6 +261,13 @@ lval *lval_pop(lval *v, int i) {
     } else {
         v->cell = realloc(v->cell, sizeof(lval*) * v->count);
     }
+    return x;
+}
+lval *lval_join(lval *x, lval *y) {
+    while (y->count > 0) {
+        x = lval_add(x, lval_pop(y, 0));
+    }
+    lval_del(y);
     return x;
 }
 lval *lval_take(lval *v, int i) {
@@ -342,7 +352,7 @@ lval *builtin_op(lval *v, char *op) {
     while (v->count > 0) {
         lval *y = lval_pop(v, 0);
         if (!strcmp(op, "*")) builtin_mul(x, y);
-        if (!strcmp(op, "/")) {
+        else if (!strcmp(op, "/")) {
             lval *fail = builtin_div_or_fail(x, y);
             if (fail) {
                 lval_del(x); lval_del(y);
@@ -350,9 +360,9 @@ lval *builtin_op(lval *v, char *op) {
                 break;
             }
         }
-        if (!strcmp(op, "+")) builtin_add(x, y);
-        if (!strcmp(op, "-")) builtin_sub(x, y);
-        if (!strcmp(op, "%")) {
+        else if (!strcmp(op, "+")) builtin_add(x, y);
+        else if (!strcmp(op, "-")) builtin_sub(x, y);
+        else if (!strcmp(op, "%")) {
             lval *fail = builtin_mod_or_fail(x, y);
             if (fail) {
                 lval_del(x); lval_del(y);
@@ -360,13 +370,63 @@ lval *builtin_op(lval *v, char *op) {
                 break;
             }
         }
-        if (!strcmp(op, "^")) builtin_pow(x, y);
-        if (!strcmp(op, "min")) builtin_min(x, y);
-        if (!strcmp(op, "max")) builtin_max(x, y);
+        else if (!strcmp(op, "^")) builtin_pow(x, y);
+        else if (!strcmp(op, "min")) builtin_min(x, y);
+        else if (!strcmp(op, "max")) builtin_max(x, y);
         lval_del(y);
     }
     lval_del(v);
     return x;
+}
+#define LASSERT(v, cond, err) \
+    do {if (!(cond)){lval_del(v); return lval_err(err);}} while(0)
+lval *builtin_list(lval *v) {
+    v->type = LVAL_QEXPR;
+    return v;
+}
+lval *builtin_eval(lval *v) {
+    LASSERT(v, v->count == 1, "Function 'eval' passed too many arguments!");
+    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'eval' requires Q-expr arg!");
+    lval *x = lval_take(v, 0);
+    x->type = LVAL_SEXPR;
+    return lval_eval(x);
+}
+lval *builtin_head(lval *v) {
+    LASSERT(v, v->count == 1, "Function 'head' passed too many arguments!");
+    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'head' requires Q-expr arg!");
+    LASSERT(v, v->cell[0]->count > 0, "Function 'head' requires non-empty Q-expr arg!");
+    lval *x = lval_take(v, 0);
+    while (x->count > 1) { lval_del(lval_pop(x, 1)); }
+    return x;
+}
+lval *builtin_tail(lval *v) {
+    LASSERT(v, v->count == 1, "Function 'tail' passed too many arguments!");
+    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'tail' requires Q-expr arg!");
+    LASSERT(v, v->cell[0]->count > 0, "Function 'tail' requires non-empty Q-expr arg!");
+    lval *x = lval_take(v, 0);
+    lval_del(lval_pop(x, 0));
+    return x;
+}
+lval *builtin_join(lval *v) {
+    for (int i = 0; i < v->count; i++) {
+        LASSERT(v, v->cell[i]->type == LVAL_QEXPR, "Function 'join' requires only Q-expr args!");
+    }
+    lval *x = lval_pop(v, 0);
+    while (v->count > 0) {
+        x = lval_join(x, lval_pop(v, 0));
+    }
+    lval_del(v);
+    return x;
+}
+lval *builtin(lval *v, char *func) {
+    if (!strcmp("list", func)) { return builtin_list(v); }
+    else if (!strcmp("eval", func)) { return builtin_eval(v); }
+    else if (!strcmp("head", func)) { return builtin_head(v); }
+    else if (!strcmp("tail", func)) { return builtin_tail(v); }
+    else if (!strcmp("join", func)) { return builtin_join(v); }
+    else if (strstr("+-/*%^minmax", func)) { return builtin_op(v, func); }
+    lval_del(v);
+    return lval_err("Unknown Builtin Function!");
 }
 lval *lval_eval_sexpr(lval *v) {
     if (v->type == LVAL_ERR) return v;
@@ -385,7 +445,7 @@ lval *lval_eval_sexpr(lval *v) {
         lval_del(f); lval_del(v);
         return lval_err("S-expression Does not start with symbol!");
     }
-    lval *result = builtin_op(v, f->sym);
+    lval *result = builtin(v, f->sym);
     lval_del(f);
     return result;
 }
