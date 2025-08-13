@@ -77,6 +77,10 @@ TESTMETHOD(test_qexpr) {
     assert_repr("eval (tail {tail tail {5 6 7}})", "{6 7}");
     assert_repr("eval (head {(+ 1 2) (+ 10 20)})", "3");
     assert_repr("join {tail 111 head} {222} {head 333 tail}", "{tail 111 head 222 head 333 tail}");
+    assert_repr("len {}", "0");
+    assert_repr("len {0 1 2 3 4 5}", "6");
+    assert_repr("cons 0 {}", "{0}");
+    assert_repr("cons 1 {2 {3}}", "{1 2 {3}}");
 }
 TESTMETHOD(test_number_err) {
     assert_error("+ 9999999999999999999 1", LERR_BAD_NUM);

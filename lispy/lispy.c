@@ -4,9 +4,9 @@
 const char *lispy_grammar =
         "number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
-        symbol  : '+' | '-' | '*' | '/' | '%' | '^' \
-                | \"list\" | \"eval\" | \"head\" | \"tail\" | \"join\" \
-                | \"min\" | \"max\" ;\
+        symbol  : '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" | \
+                  \"list\" | \"eval\" | \"head\" | \"tail\" | \"join\" | \
+                  \"len\" | \"cons\" ;\
         sexpr   : '(' <expr>* ')' ;\
         qexpr   : '{' <expr>* '}' ;\
         expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
@@ -385,14 +385,14 @@ lval *builtin_list(lval *v) {
     return v;
 }
 lval *builtin_eval(lval *v) {
-    LASSERT(v, v->count == 1, "Function 'eval' passed too many arguments!");
+    LASSERT(v, v->count == 1, "Function 'eval' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'eval' requires Q-expr arg!");
     lval *x = lval_take(v, 0);
     x->type = LVAL_SEXPR;
     return lval_eval(x);
 }
 lval *builtin_head(lval *v) {
-    LASSERT(v, v->count == 1, "Function 'head' passed too many arguments!");
+    LASSERT(v, v->count == 1, "Function 'head' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'head' requires Q-expr arg!");
     LASSERT(v, v->cell[0]->count > 0, "Function 'head' requires non-empty Q-expr arg!");
     lval *x = lval_take(v, 0);
@@ -400,7 +400,7 @@ lval *builtin_head(lval *v) {
     return x;
 }
 lval *builtin_tail(lval *v) {
-    LASSERT(v, v->count == 1, "Function 'tail' passed too many arguments!");
+    LASSERT(v, v->count == 1, "Function 'tail' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'tail' requires Q-expr arg!");
     LASSERT(v, v->cell[0]->count > 0, "Function 'tail' requires non-empty Q-expr arg!");
     lval *x = lval_take(v, 0);
@@ -418,12 +418,36 @@ lval *builtin_join(lval *v) {
     lval_del(v);
     return x;
 }
+lval *builtin_len(lval *v) {
+    LASSERT(v, v->count == 1, "Function 'len' requires exactly one argument!");
+    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'len' requires Q-expr arg!");
+    lval *x = lval_num(v->cell[0]->count);
+    lval_del(v);
+    return x;
+}
+lval *builtin_cons(lval *v) {
+    LASSERT(v, v->count == 2, "Function 'cons' requires exactly two arguments!");
+    LASSERT(v, v->cell[0]->type == LVAL_NUM, "Function 'cons' requires arg1 to be a number!");
+    LASSERT(v, v->cell[1]->type == LVAL_QEXPR, "Function 'cons' requires arg2 to be a Q-expr!");
+    lval *x = lval_pop(v, 0);
+    lval *y = lval_pop(v, 0);
+    lval *z = lval_qexpr();
+    z = lval_add(z, x);
+    while (y->count > 0) {
+        z = lval_add(z, lval_pop(y, 0));
+    }
+    lval_del(y);
+    lval_del(v);
+    return z;
+}
 lval *builtin(lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(v); }
     else if (!strcmp("eval", func)) { return builtin_eval(v); }
     else if (!strcmp("head", func)) { return builtin_head(v); }
     else if (!strcmp("tail", func)) { return builtin_tail(v); }
     else if (!strcmp("join", func)) { return builtin_join(v); }
+    else if (!strcmp("len", func)) { return builtin_len(v); }
+    else if (!strcmp("cons", func)) { return builtin_cons(v); }
     else if (strstr("+-/*%^minmax", func)) { return builtin_op(v, func); }
     lval_del(v);
     return lval_err("Unknown Builtin Function!");
