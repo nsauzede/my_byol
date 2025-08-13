@@ -3,21 +3,33 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-void assert_parse(char *input, long expected) {
-    char *res = eval_print(input);
-    ASSERT(!!res);
-    EXPECT_EQ(expected, atoi(res));
-    if (res) free(res);
-}
 void assert_num(char *input, long expected) {
-    lval res = eval(input);
+{
+    lval res = eval0(input);
     ASSERT_EQ(res.type, LVAL_NUM);
     ASSERT_EQ(expected, res.num);
 }
+    lval *res = eval(input);
+    ASSERT(!!res);
+    EXPECT_EQ(res->type, LVAL_NUM);
+    EXPECT_EQ(expected, res->num);
+    lval_del(res);
+}
 void expect_error(char *input, int error) {
-    lval res = eval(input);
+{
+    lval res = eval0(input);
     ASSERT_EQ(res.type, LVAL_ERR);
-    ASSERT_EQ(error, res.err);
+    ASSERT_EQ(error, res.err0);
+}
+    lval *res = eval(input);
+    ASSERT(!!res);
+    EXPECT_EQ(res->type, LVAL_ERR);
+    char *errors[] = {
+        [LERR_BAD_NUM] = "Invalid Number!",
+        [LERR_DIV_ZERO] = "Division By Zero!",
+    };
+    EXPECT_EQ(errors[error], res->err);
+    lval_del(res);
 }
 TESTMETHOD(test_number_err) {
     expect_error("+ 9999999999999999999 1", LERR_BAD_NUM);
