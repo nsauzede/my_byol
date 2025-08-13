@@ -1,7 +1,7 @@
+//#define DUMP_AST
 #include "../mpc/mpc.c"
 /***************************************************************/
 #include <math.h>
-//#define DUMP_AST
 typedef struct lval {
     int type;
     // num
@@ -25,6 +25,20 @@ lval *lval_num(long num) {
     *ret = (lval){LVAL_NUM,.num=num};
     return ret;
 }
+lval *lval_sym(char *sym) {
+    lval *ret = malloc(sizeof(lval));
+//    printf("%s: alloced %p\n", __func__, ret);
+    *ret = (lval){LVAL_SYM,.sym=malloc(strlen(sym) + 1)};
+//    printf("%s: alloced sym %p\n", __func__, ret->sym);
+    strcpy(ret->sym, sym);
+    return ret;
+}
+lval *lval_sexpr(void) {
+    lval *ret = malloc(sizeof(lval));
+//    printf("%s: alloced %p\n", __func__, ret);
+    *ret = (lval){LVAL_SEXPR,.count=0,.cell=NULL};
+    return ret;
+}
 lval *lval_err(char *err) {
     lval *ret = malloc(sizeof(lval));
 //    printf("%s: alloced %p\n", __func__, ret);
@@ -36,9 +50,19 @@ lval *lval_err(char *err) {
 void lval_del(lval *v) {
     switch (v->type) {
         case LVAL_NUM:break;
+        case LVAL_SYM:
+//            printf("%s: freeing sym %p\n", __func__, v->sym);
+            free(v->sym);
+            break;
         case LVAL_ERR:
 //            printf("%s: freeing err %p\n", __func__, v->err);
             free(v->err);
+            break;
+        case LVAL_SEXPR:
+            for (int i = 0; i < v->count; i++) {
+                lval_del(v->cell[i]);
+            }
+            free(v->cell);
             break;
     }
 //    printf("%s: freeing %p\n", __func__, v);
@@ -71,35 +95,30 @@ void lval_println0(lval v) {
     lval_print0(v);
     puts("");
 }
-#if 0
+void lval_sexpr_print(lval *v, char open, char close);
 void lval_print(lval *v) {
-    switch (v.type) {
-        case LVAL_NUM:
-            printf("%li", v.num);
-            break;
-        case LVAL_ERR:
-            switch (v.err0) {
-                case LERR_DIV_ZERO:
-                    printf("Error: Division By Zero!");
-                    break;
-                case LERR_BAD_SYM:
-                    printf("Error: Invalid Symbol!");
-                    break;
-                case LERR_BAD_NUM:
-                    printf("Error: Invalid Number!");
-                    break;
-                case LERR_PARSE_ERROR:
-                    printf("Error: Parse Error!");
-                    break;
-            }
-            break;
+    if (!v) return;
+    switch (v->type) {
+        case LVAL_NUM:printf("%li", v->num);break;
+        case LVAL_SYM:printf("%s", v->sym);break;
+        case LVAL_ERR:printf("Error: %s", v->err);break;
+        case LVAL_SEXPR:lval_sexpr_print(v, '(', ')');break;
     }
 }
-void lval_println(lval v) {
+void lval_sexpr_print(lval *v, char open, char close) {
+    putchar(open);
+    for (int i = 0; i < v->count; i++) {
+        lval_print(v->cell[i]);
+        if (i != v->count - 1) {
+            putchar(' ');
+        }
+    }
+    putchar(close);
+}
+void lval_println(lval *v) {
     lval_print(v);
     puts("");
 }
-#endif
 void ast_print(int level, mpc_ast_t *a) {
     for (int i = 0; i < level; i++) {
         printf("  ");
@@ -146,36 +165,34 @@ lval *lval_read_num(mpc_ast_t *a) {
     long num = strtol(a->contents, NULL, 10);
     return errno==0?lval_num(num):lval_err("Invalid Number!");
 }
+lval *lval_add(lval *v, lval *x) {
+    v->count++;
+    v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+    v->cell[v->count-1] = x;
+    return v;
+}
 lval *lval_read(mpc_ast_t *a) {
-    if (strstr(a->tag, "number")) { return lval_read_num(a); }
-    char *op = a->children[1]->contents;
-    lval *ret = lval_read(a->children[2]);
-    if (ret->type == LVAL_ERR) return ret;
-    for (int i = 3; i < a->children_num; i++) {
-        if (!strstr(a->children[i]->tag, "expr"))
-            break;
-        lval *ret_ = lval_read(a->children[i]);
-        if (ret_->type == LVAL_ERR) {
-            lval_del(ret);
-            return ret_;
+    if (strstr(a->tag, "number")) {
+//        printf("RETURNING NUM\n");
+        return lval_read_num(a);
+    }
+    if (strstr(a->tag, "symbol")) {
+//        printf("RETURNING SYM\n");
+        return lval_sym(a->contents);
+    }
+    //lval *ret = lval_err("???");
+    lval *ret = NULL;
+    if (!strcmp(a->tag, ">")||strstr(a->tag, "sexpr")) {
+        ret = lval_sexpr();
+    }
+    for (int i = 0; i < a->children_num; i++) {
+//        printf("%d tag=%s contents=%s\n", i, a->children[i]->tag, a->children[i]->contents);
+        if (!strcmp(a->children[i]->contents, "(")
+            ||!strcmp(a->children[i]->contents, ")")
+            ||!strcmp(a->children[i]->tag, "regex")) {
+            continue;
         }
-        if (!strcmp(op, "*")) ret->num *= ret_->num;
-        if (!strcmp(op, "/")) {
-            if (ret_->num == 0) {
-                lval_del(ret);
-                lval_del(ret_);
-                return lval_err("Division By Zero!");
-            } else {
-                ret->num /= ret_->num;
-            }
-        }
-        if (!strcmp(op, "+")) ret->num += ret_->num;
-        if (!strcmp(op, "-")) ret->num -= ret_->num;
-        if (!strcmp(op, "%")) ret->num %= ret_->num;
-        if (!strcmp(op, "^")) ret->num = pow(ret->num, ret_->num);
-        if (!strcmp(op, "min")) ret->num = ret->num>ret_->num?ret_->num:ret->num;
-        if (!strcmp(op, "max")) ret->num = ret->num<ret_->num?ret_->num:ret->num;
-        lval_del(ret_);
+        ret = lval_add(ret, lval_read(a->children[i]));
     }
     return ret;
 }
@@ -255,7 +272,7 @@ char *eval_print(char *s) {
     char *res = 0;
     lval *ret = eval(s);
     if (!ret) return 0;
-    lval_println0(*ret);
+    lval_println(ret);
     if (ret->type == LVAL_NUM) {
         int len = 16;
         res = malloc(len);

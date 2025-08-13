@@ -8,7 +8,7 @@ void assert_num(char *input, long expected) {
     lval res = eval0(input);
     ASSERT_EQ(res.type, LVAL_NUM);
     ASSERT_EQ(expected, res.num);
-}
+}return;
     lval *res = eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_NUM);
@@ -20,7 +20,7 @@ void expect_error(char *input, int error) {
     lval res = eval0(input);
     ASSERT_EQ(res.type, LVAL_ERR);
     ASSERT_EQ(error, res.err0);
-}
+}return;
     lval *res = eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_ERR);
