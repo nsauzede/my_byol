@@ -3,6 +3,15 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
+void expect_qexpr(char *input, const char *expected) {
+    lval *res = eval(input);
+    ASSERT(!!res);
+    EXPECT_EQ(res->type, LVAL_QEXPR);
+    char *repr = lval_repr(res);
+    EXPECT_EQ(expected, repr);
+    free(repr);
+    lval_del(res);
+}
 void expect_sexpr(char *input, const char *expected) {
     lval *res = eval(input);
     ASSERT(!!res);
@@ -49,13 +58,12 @@ void expect_error_noeval(char *input, int error) {
     EXPECT_EQ(lerrors[error], res->err);
     lval_del(res);
 }
-TESTMETHOD(test_sappendf) {
-    char *p = 0;
-    int plen = 0;
-    sappendf(&p, &plen, "%s%c%s", "hello", ' ', "world");
-    printf("p=[%s]\n", p);
-    EXPECT_EQ(p, "hello world");
-    free(p);
+TESTMETHOD(test_sexpr) {
+    expect_sexpr("", "()");
+}
+TESTMETHOD(test_qexpr) {
+    expect_qexpr("{1 2 3 4}", "{1 2 3 4}");
+    expect_qexpr("{1 2 (+ 1 1)}", "{1 2 (+ 1 1)}");
 }
 TESTMETHOD(test_number_err) {
     expect_error("+ 9999999999999999999 1", LERR_BAD_NUM);
@@ -80,9 +88,6 @@ TESTMETHOD(test_noeval) {
     expect_sexpr_noeval("+ 2 2.1", "(+ 2 2.100000)");
     expect_sexpr_noeval("5", "(5)");
 }
-TESTMETHOD(test_sexpr) {
-    expect_sexpr("", "()");
-}
 TESTMETHOD(test) {
     expect_num("+ 1 -2 6", 5);
     expect_num("max 1 5 3", 5);
@@ -93,4 +98,12 @@ TESTMETHOD(test) {
     expect_num("* 10 (+ 1 51)", 520);
     expect_num("* 1 2 6", 12);
     expect_num("+ 1 2 6", 9);
+}
+TESTMETHOD(test_sappendf) {
+    char *p = 0;
+    int plen = 0;
+    sappendf(&p, &plen, "%s%c%s", "hello", ' ', "world");
+    printf("p=[%s]\n", p);
+    EXPECT_EQ(p, "hello world");
+    free(p);
 }

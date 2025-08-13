@@ -12,7 +12,7 @@ typedef struct lval {
     int count;
     struct lval **cell;
 } lval;
-enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_FLT };
+enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT };
 enum { LERR_DIV_ZERO, LERR_BAD_SYM, LERR_BAD_NUM, LERR_BAD_FLT, LERR_PARSE_ERROR, LERR_INVALID_OPERAND };
 const char *lerrors[] = {
     [LERR_DIV_ZERO] = "Division By Zero!",
@@ -42,6 +42,11 @@ lval *lval_sexpr(void) {
     *ret = (lval){LVAL_SEXPR,.count=0,.cell=NULL};
     return ret;
 }
+lval *lval_qexpr(void) {
+    lval *ret = malloc(sizeof(lval));
+    *ret = (lval){LVAL_QEXPR,.count=0,.cell=NULL};
+    return ret;
+}
 lval *lval_err(const char *err) {
     lval *ret = malloc(sizeof(lval));
     *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1)};
@@ -59,6 +64,7 @@ void lval_del(lval *v) {
             free(v->err);
             break;
         case LVAL_SEXPR:
+        case LVAL_QEXPR:
             for (int i = 0; i < v->count; i++) {
                 lval_del(v->cell[i]);
             }
@@ -92,7 +98,7 @@ int sappendf(char **p, int *plen, const char *fmt, ...) {
     return n;
 }
 void lval_repr_(char **s, int *slen, lval *v);
-void lval_sexpr_repr(char **s, int *slen, lval *v, char open, char close) {
+void lval_expr_repr(char **s, int *slen, lval *v, char open, char close) {
     sappendf(s, slen, "%c", open);
     for (int i = 0; i < v->count; i++) {
         lval_repr_(s, slen, v->cell[i]);
@@ -109,7 +115,8 @@ void lval_repr_(char **s, int *slen, lval *v) {
         case LVAL_FLT:sappendf(s, slen, "%f", v->flt);break;
         case LVAL_SYM:sappendf(s, slen, "%s", v->sym);break;
         case LVAL_ERR:sappendf(s, slen, "%s", v->err);break;
-        case LVAL_SEXPR:lval_sexpr_repr(s, slen, v, '(', ')');break;
+        case LVAL_SEXPR:lval_expr_repr(s, slen, v, '(', ')');break;
+        case LVAL_QEXPR:lval_expr_repr(s, slen, v, '{', '}');break;
     }
 }
 char *lval_repr(lval *v) {
@@ -119,7 +126,7 @@ char *lval_repr(lval *v) {
     return repr;
 }
 void lval_print(lval *v);
-void lval_sexpr_print(lval *v, char open, char close) {
+void lval_expr_print(lval *v, char open, char close) {
     putchar(open);
     for (int i = 0; i < v->count; i++) {
         lval_print(v->cell[i]);
@@ -136,7 +143,8 @@ void lval_print(lval *v) {
         case LVAL_FLT:printf("%f", v->flt);break;
         case LVAL_SYM:printf("%s", v->sym);break;
         case LVAL_ERR:printf("Error: %s", v->err);break;
-        case LVAL_SEXPR:lval_sexpr_print(v, '(', ')');break;
+        case LVAL_SEXPR:lval_expr_print(v, '(', ')');break;
+        case LVAL_QEXPR:lval_expr_print(v, '{', '}');break;
     }
 }
 void lval_println(lval *v) {
@@ -187,9 +195,14 @@ lval *lval_read(mpc_ast_t *a) {
     if (!strcmp(a->tag, ">")||strstr(a->tag, "sexpr")) {
         ret = lval_sexpr();
     }
+    if (strstr(a->tag, "qexpr")) {
+        ret = lval_qexpr();
+    }
     for (int i = 0; i < a->children_num; i++) {
         if (!strcmp(a->children[i]->contents, "(")
             ||!strcmp(a->children[i]->contents, ")")
+            ||!strcmp(a->children[i]->contents, "{")
+            ||!strcmp(a->children[i]->contents, "}")
             ||!strcmp(a->children[i]->tag, "regex")) {
             continue;
         }
@@ -208,6 +221,7 @@ void *parse_lispy(char *s) {
     mpc_parser_t *Float = mpc_new("float");
     mpc_parser_t *Symbol = mpc_new("symbol");
     mpc_parser_t *Sexpr = mpc_new("sexpr");
+    mpc_parser_t *Qexpr = mpc_new("qexpr");
     mpc_parser_t *Expr = mpc_new("expr");
     mpc_parser_t *Lispy = mpc_new("lispy");
     mpca_lang(MPCA_LANG_DEFAULT,
@@ -215,9 +229,10 @@ void *parse_lispy(char *s) {
         float   : /-?[0-9]+[.][0-9]+/ ;\
         symbol  : '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" ;\
         sexpr   : '(' <expr>* ')' ;\
-        expr    : <float> | <number> | <symbol> | <sexpr> ;\
+        qexpr   : '{' <expr>* '}' ;\
+        expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
         lispy   : /^/ <expr>* /$/ ;",
-        Number, Float, Symbol, Sexpr, Expr, Lispy
+        Number, Float, Symbol, Sexpr, Qexpr, Expr, Lispy
     );
     void *res = 0;
     mpc_result_t r;
@@ -230,7 +245,7 @@ void *parse_lispy(char *s) {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
     }
-    mpc_cleanup(6, Number, Float, Symbol, Sexpr, Expr, Lispy);
+    mpc_cleanup(7, Number, Float, Symbol, Sexpr, Qexpr, Expr, Lispy);
     return res;
 }
 lval *lval_pop(lval *v, int i) {
