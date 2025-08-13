@@ -6,7 +6,7 @@ const char *lispy_grammar =
         float   : /-?[0-9]+[.][0-9]+/ ;\
         symbol  : '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" | \
                   \"list\" | \"eval\" | \"head\" | \"tail\" | \"join\" | \
-                  \"len\" | \"cons\" ;\
+                  \"len\" | \"cons\" | \"init\" ;\
         sexpr   : '(' <expr>* ')' ;\
         qexpr   : '{' <expr>* '}' ;\
         expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
@@ -440,6 +440,14 @@ lval *builtin_cons(lval *v) {
     lval_del(v);
     return z;
 }
+lval *builtin_init(lval *v) {
+    LASSERT(v, v->count == 1, "Function 'init' requires exactly one argument!");
+    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'init' requires Q-expr arg!");
+    LASSERT(v, v->cell[0]->count > 0, "Function 'init' requires non-empty Q-expr arg!");
+    lval *x = lval_take(v, 0);
+    lval_del(lval_pop(x, x->count - 1));
+    return x;
+}
 lval *builtin(lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(v); }
     else if (!strcmp("eval", func)) { return builtin_eval(v); }
@@ -448,6 +456,7 @@ lval *builtin(lval *v, char *func) {
     else if (!strcmp("join", func)) { return builtin_join(v); }
     else if (!strcmp("len", func)) { return builtin_len(v); }
     else if (!strcmp("cons", func)) { return builtin_cons(v); }
+    else if (!strcmp("init", func)) { return builtin_init(v); }
     else if (strstr("+-/*%^minmax", func)) { return builtin_op(v, func); }
     lval_del(v);
     return lval_err("Unknown Builtin Function!");

@@ -81,6 +81,7 @@ TESTMETHOD(test_qexpr) {
     assert_repr("len {0 1 2 3 4 5}", "6");
     assert_repr("cons 0 {}", "{0}");
     assert_repr("cons 1 {2 {3}}", "{1 2 {3}}");
+    assert_repr("init {3 2 1 0}", "{3 2 1}");
 }
 TESTMETHOD(test_number_err) {
     assert_error("+ 9999999999999999999 1", LERR_BAD_NUM);
