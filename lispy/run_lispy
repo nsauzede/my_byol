@@ -1,1 +1,1 @@
-make clean all D=1
+make clean all D=

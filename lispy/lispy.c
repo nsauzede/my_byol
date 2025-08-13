@@ -67,17 +67,58 @@ void lval_del(lval *v) {
     }
     free(v);
 }
-void lval_sexpr_print(lval *v, char open, char close);
-void lval_print(lval *v) {
+int sappendf(char **p, int *plen, const char *fmt, ...) {
+    if (!p || !plen)return -1;
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(NULL, 0, fmt, args);
+    va_end(args);
+    if (n <= 0) { perror("vsnprintf"); return -1; }
+    char *s = calloc(n + 1, 1);
+    if (!s) { perror("calloc"); return -1; }
+    va_start(args, fmt);
+    vsnprintf(s, n + 1, fmt, args);
+    va_end(args);
+    if (!*p) {
+        *p = calloc(1,1);
+        if (!*p) { perror("calloc"); free(s); return -1; }
+    }
+    char *tmp = realloc(*p, *plen + n + 1);
+    if (!tmp) { perror("calloc"); free(s); return -1; }
+    *p = tmp;
+    memcpy(*p + *plen, s, n + 1);
+    *plen += n;
+    free(s);
+    return n;
+}
+void lval_repr_(char **s, int *slen, lval *v);
+void lval_sexpr_repr(char **s, int *slen, lval *v, char open, char close) {
+    sappendf(s, slen, "%c", open);
+    for (int i = 0; i < v->count; i++) {
+        lval_repr_(s, slen, v->cell[i]);
+        if (i != v->count - 1) {
+            sappendf(s, slen, " ");
+        }
+    }
+    sappendf(s, slen, "%c", close);
+}
+void lval_repr_(char **s, int *slen, lval *v) {
     if (!v) return;
     switch (v->type) {
-        case LVAL_NUM:printf("%li", v->num);break;
-        case LVAL_FLT:printf("%f", v->flt);break;
-        case LVAL_SYM:printf("%s", v->sym);break;
-        case LVAL_ERR:printf("Error: %s", v->err);break;
-        case LVAL_SEXPR:lval_sexpr_print(v, '(', ')');break;
+        case LVAL_NUM:sappendf(s, slen, "%li", v->num);break;
+        case LVAL_FLT:sappendf(s, slen, "%f", v->flt);break;
+        case LVAL_SYM:sappendf(s, slen, "%s", v->sym);break;
+        case LVAL_ERR:sappendf(s, slen, "%s", v->err);break;
+        case LVAL_SEXPR:lval_sexpr_repr(s, slen, v, '(', ')');break;
     }
 }
+char *lval_repr(lval *v) {
+    char *repr = 0;
+    int len = 0;
+    lval_repr_(&repr, &len, v);
+    return repr;
+}
+void lval_print(lval *v);
 void lval_sexpr_print(lval *v, char open, char close) {
     putchar(open);
     for (int i = 0; i < v->count; i++) {
@@ -87,6 +128,16 @@ void lval_sexpr_print(lval *v, char open, char close) {
         }
     }
     putchar(close);
+}
+void lval_print(lval *v) {
+    if (!v) return;
+    switch (v->type) {
+        case LVAL_NUM:printf("%li", v->num);break;
+        case LVAL_FLT:printf("%f", v->flt);break;
+        case LVAL_SYM:printf("%s", v->sym);break;
+        case LVAL_ERR:printf("Error: %s", v->err);break;
+        case LVAL_SEXPR:lval_sexpr_print(v, '(', ')');break;
+    }
 }
 void lval_println(lval *v) {
     lval_print(v);
@@ -323,18 +374,22 @@ lval *lval_eval_sexpr(lval *v) {
     lval_del(f);
     return result;
 }
-lval *eval(char *s) {
+lval *lread(char *s) {
     mpc_result_t r;
     lval *res = NULL;
     r.output = parse_lispy(s);
     if (r.output) {
         res = lval_read(r.output);
         mpc_ast_delete(r.output);
-        res = lval_eval_sexpr(res);
     } else {
         res = lval_err(lerrors[LERR_PARSE_ERROR]);
     }
     return res;
+}
+lval *eval(char *s) {
+    lval *res = lread(s);
+    if (res->type == LVAL_ERR) return res;
+    return lval_eval_sexpr(res);
 }
 char *eval_print(char *s) {
     char *res = 0;
