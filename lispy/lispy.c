@@ -4,12 +4,8 @@
 #include <math.h>
 typedef struct lval {
     int type;
-    // num
     long num;
-    // err
-    int err0;
     char *err;
-    // sym
     char *sym;
     // sexpr
     int count;
@@ -17,33 +13,25 @@ typedef struct lval {
 } lval;
 enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR };
 enum { LERR_DIV_ZERO, LERR_BAD_SYM, LERR_BAD_NUM, LERR_PARSE_ERROR };
-lval lval_num0(long num) { return (lval){LVAL_NUM,.num=num}; }
-lval lval_err0(int err) { return (lval){LVAL_ERR,.err0=err}; }
 lval *lval_num(long num) {
     lval *ret = malloc(sizeof(lval));
-//    printf("%s: alloced %p\n", __func__, ret);
     *ret = (lval){LVAL_NUM,.num=num};
     return ret;
 }
 lval *lval_sym(char *sym) {
     lval *ret = malloc(sizeof(lval));
-//    printf("%s: alloced %p\n", __func__, ret);
     *ret = (lval){LVAL_SYM,.sym=malloc(strlen(sym) + 1)};
-//    printf("%s: alloced sym %p\n", __func__, ret->sym);
     strcpy(ret->sym, sym);
     return ret;
 }
 lval *lval_sexpr(void) {
     lval *ret = malloc(sizeof(lval));
-//    printf("%s: alloced %p\n", __func__, ret);
     *ret = (lval){LVAL_SEXPR,.count=0,.cell=NULL};
     return ret;
 }
 lval *lval_err(const char *err) {
     lval *ret = malloc(sizeof(lval));
-//    printf("%s: alloced %p\n", __func__, ret);
     *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1)};
-//    printf("%s: alloced err %p\n", __func__, ret->err);
     strcpy(ret->err, err);
     return ret;
 }
@@ -51,11 +39,9 @@ void lval_del(lval *v) {
     switch (v->type) {
         case LVAL_NUM:break;
         case LVAL_SYM:
-//            printf("%s: freeing sym %p\n", __func__, v->sym);
             free(v->sym);
             break;
         case LVAL_ERR:
-//            printf("%s: freeing err %p\n", __func__, v->err);
             free(v->err);
             break;
         case LVAL_SEXPR:
@@ -65,40 +51,12 @@ void lval_del(lval *v) {
             free(v->cell);
             break;
     }
-//    printf("%s: freeing %p\n", __func__, v);
     free(v);
 }
 static const char *lerrors[] = {
     [LERR_DIV_ZERO] = "Division By Zero!",
     [LERR_BAD_NUM] = "Invalid Number!",
 };
-void lval_print0(lval v) {
-    switch (v.type) {
-        case LVAL_NUM:
-            printf("%li", v.num);
-            break;
-        case LVAL_ERR:
-            switch (v.err0) {
-                case LERR_DIV_ZERO:
-                    printf("Error: %s", lerrors[LERR_DIV_ZERO]);
-                    break;
-                case LERR_BAD_SYM:
-                    printf("Error: Invalid Symbol!");
-                    break;
-                case LERR_BAD_NUM:
-                    printf("Error: %s", lerrors[LERR_BAD_NUM]);
-                    break;
-                case LERR_PARSE_ERROR:
-                    printf("Error: Parse Error!");
-                    break;
-            }
-            break;
-    }
-}
-void lval_println0(lval v) {
-    lval_print0(v);
-    puts("");
-}
 void lval_sexpr_print(lval *v, char open, char close);
 void lval_print(lval *v) {
     if (!v) return;
@@ -137,33 +95,6 @@ void ast_print(int level, mpc_ast_t *a) {
         ast_print(level + 1, a->children[i]);
     }
 }
-lval ast_eval(mpc_ast_t *a) {
-    if (strstr(a->tag, "number")) {
-        errno = 0;
-        long num = strtol(a->contents, NULL, 10);
-        return errno==0?lval_num0(num):lval_err0(LERR_BAD_NUM);
-    }
-    char *op = a->children[1]->contents;
-    lval ret = ast_eval(a->children[2]);
-    if (ret.type == LVAL_ERR) return ret;
-    for (int i = 3; i < a->children_num; i++) {
-        if (!strstr(a->children[i]->tag, "expr"))
-            break;
-        lval ret_ = ast_eval(a->children[i]);
-        if (ret_.type == LVAL_ERR) return ret_;
-        if (!strcmp(op, "*")) ret.num *= ret_.num;
-        if (!strcmp(op, "/")) {
-            ret = ret_.num == 0 ? lval_err0(LERR_DIV_ZERO) : lval_num0(ret.num / ret_.num);
-        }
-        if (!strcmp(op, "+")) ret.num += ret_.num;
-        if (!strcmp(op, "-")) ret.num -= ret_.num;
-        if (!strcmp(op, "%")) ret.num %= ret_.num;
-        if (!strcmp(op, "^")) ret.num = pow(ret.num, ret_.num);
-        if (!strcmp(op, "min")) ret.num = ret.num>ret_.num?ret_.num:ret.num;
-        if (!strcmp(op, "max")) ret.num = ret.num<ret_.num?ret_.num:ret.num;
-    }
-    return ret;
-}
 lval *lval_read_num(mpc_ast_t *a) {
     errno = 0;
     long num = strtol(a->contents, NULL, 10);
@@ -177,20 +108,16 @@ lval *lval_add(lval *v, lval *x) {
 }
 lval *lval_read(mpc_ast_t *a) {
     if (strstr(a->tag, "number")) {
-//        printf("RETURNING NUM\n");
         return lval_read_num(a);
     }
     if (strstr(a->tag, "symbol")) {
-//        printf("RETURNING SYM\n");
         return lval_sym(a->contents);
     }
-    //lval *ret = lval_err("???");
     lval *ret = NULL;
     if (!strcmp(a->tag, ">")||strstr(a->tag, "sexpr")) {
         ret = lval_sexpr();
     }
     for (int i = 0; i < a->children_num; i++) {
-//        printf("%d tag=%s contents=%s\n", i, a->children[i]->tag, a->children[i]->contents);
         if (!strcmp(a->children[i]->contents, "(")
             ||!strcmp(a->children[i]->contents, ")")
             ||!strcmp(a->children[i]->tag, "regex")) {
@@ -234,40 +161,12 @@ void *parse_lispy(char *s) {
     mpc_cleanup(5, Number, Symbol, Sexpr, Expr, Lispy);
     return res;
 }
-lval eval0(char *s) {
-    mpc_result_t r;
-    lval res = lval_err0(LERR_PARSE_ERROR);
-    r.output = parse_lispy(s);
-    if (r.output) {
-        res = ast_eval(r.output);
-        mpc_ast_delete(r.output);
-    }
-    return res;
-}
-char *eval_print0(char *s) {
-    char *res = 0;
-    lval ret = eval0(s);
-    lval_println0(ret);
-    if (ret.type == LVAL_NUM) {
-        int len = 16;
-        res = malloc(len);
-        snprintf(res, len, "%ld", ret.num);
-    } else {
-        int len = 16;
-        res = malloc(len);
-        snprintf(res, len, "err:%d", ret.err0);
-    }
-    return res;
-}
-#if 1
 lval *lval_pop(lval *v, int i) {
     lval *x = v->cell[i];
     memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count - i - 1));
     v->count--;
-    // Valgrind doesn't like zero-realloc ?
-    //v->cell = realloc(v->cell, sizeof(lval*) * v->count);
     if (v->count == 0) {
-        free(v->cell);
+        free(v->cell);  // Valgrind doesn't like zero-realloc ?
         v->cell = NULL;
     } else {
         v->cell = realloc(v->cell, sizeof(lval*) * v->count);
@@ -363,14 +262,13 @@ char *eval_print(char *s) {
         res = malloc(len);
         snprintf(res, len, "%ld", ret->num);
     } else {
-        int len = 16;
+        int len = 32;
         res = malloc(len);
-        snprintf(res, len, "err:%d", ret->err0);
+        snprintf(res, len, "err:%s", ret->err);
     }
     lval_del(ret);
     return res;
 }
-#endif
 int main() {
     char buf[512];
     while (1) {
