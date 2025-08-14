@@ -9,27 +9,26 @@ void assert_repr_lval(lval *v, const char *expected) {
     EXPECT_EQ(expected, repr);
     free(repr);
 }
-void assert_repr_(int read_not_eval, char *input, const char *expected) {
-    lval *res = read_not_eval ? lread(input) : eval(input);
+void assert_repr_(int read_not_eval, lenv *e, char *input, const char *expected) {
+    lval *res = read_not_eval ? lread(input) : eval(e, input);
     assert_repr_lval(res, expected);
     lval_del(res);
 }
-#define assert_repr(input,expected) assert_repr_(0,input,expected)
-#define assert_repr_noeval(input,expected) assert_repr_(1,input,expected)
+#define assert_repr(e,input,expected) assert_repr_(0,e,input,expected)
+#define assert_repr_noeval(e,input,expected) assert_repr_(1,e,input,expected)
 void assert_error_lval(lval *v, int expected) {
     ASSERT(!!v);
     EXPECT_EQ(v->type, LVAL_ERR);
     EXPECT_EQ(lerrors[expected], v->err);
 }
-void assert_error_(int read_not_eval, char *input, int expected) {
-    lval *res = read_not_eval ? lread(input) : eval(input);
+void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
+    lval *res = read_not_eval ? lread(input) : eval(e,input);
     assert_error_lval(res, expected);
     lval_del(res);
 }
-#define assert_error(input,expected) assert_error_(0,input,expected)
-#define assert_error_noeval(input,expected) assert_error_(1,input,expected)
+#define assert_error(e,input,expected) assert_error_(0,e,input,expected)
+#define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
 static lval *lfun1(lenv *e, lval *v) { return 0; }
-
 TESTMETHOD(test_env) {
     lenv *e = lenv_new();
     lval *k = lval_sym("hello");
@@ -55,7 +54,7 @@ TESTMETHOD(test_env) {
     lenv_del(e);
 }
 TESTMETHOD(test_copy) {
-    lval *err = lval_err("err");
+    lval *err = lval_err(0, "err");
     lval *err2 = lval_copy(err);
     EXPECT_EQ(err->err, err2->err);
     lval_del(err2);
@@ -72,62 +71,82 @@ TESTMETHOD(test_copy) {
     lval_del(num);
 }
 TESTMETHOD(test_fun) {
-    assert_repr("eval (head {5 10 11 15})", "5");
-    assert_repr("(eval (head {+ - + - * /})) 10 20", "30");
-    assert_error("hello", LERR_PARSE_ERROR);
-    //assert_repr("+", "<function>");
-    //assert_repr("eval (head {+ - + - * /})", "<function>");
+    lenv *e = lenv_new();
+    assert_repr(e, "+", "<function>");
+    assert_repr(e, "eval (head {5 10 11 15})", "5");
+    assert_repr(e, "eval (head {+ - + - * /})", "<function>");
+    assert_repr(e, "(eval (head {+ - + - * /})) 10 20", "30");
+    assert_error(e, "hello", LERR_UNBOUND_SYM);
+    lenv_del(e);
 }
 TESTMETHOD(test_sexpr) {
-    assert_repr("", "()");
+    lenv *e = lenv_new();
+    assert_repr(e, "", "()");
+    lenv_del(e);
 }
 TESTMETHOD(test_qexpr) {
-    assert_repr("list 1 2 3 4", "{1 2 3 4}");
-    assert_repr("{head (list 1 2 3 4)}", "{head (list 1 2 3 4)}");
-    assert_repr("eval {head (list 1 2 3 4)}", "{1}");
-    assert_repr("tail {tail tail tail}", "{tail tail}");
-    assert_repr("eval (tail {tail tail {5 6 7}})", "{6 7}");
-    assert_repr("eval (head {(+ 1 2) (+ 10 20)})", "3");
-    assert_repr("join {tail 111 head} {222} {head 333 tail}", "{tail 111 head 222 head 333 tail}");
-    assert_repr("len {}", "0");
-    assert_repr("len {0 1 2 3 4 5}", "6");
-    assert_repr("cons 0 {}", "{0}");
-    assert_repr("cons 1 {2 {3}}", "{1 2 {3}}");
-    assert_repr("init {3 2 1 0}", "{3 2 1}");
+    lenv *e = lenv_new();
+    assert_repr(e, "list 1 2 3 4", "{1 2 3 4}");
+    assert_repr(e, "{head (list 1 2 3 4)}", "{head (list 1 2 3 4)}");
+    assert_repr(e, "eval {head (list 1 2 3 4)}", "{1}");
+    assert_repr(e, "tail {tail tail tail}", "{tail tail}");
+    assert_repr(e, "eval (tail {tail tail {5 6 7}})", "{6 7}");
+    assert_repr(e, "eval (head {(+ 1 2) (+ 10 20)})", "3");
+    assert_repr(e, "join {tail 111 head} {222} {head 333 tail}", "{tail 111 head 222 head 333 tail}");
+    assert_repr(e, "len {}", "0");
+    assert_repr(e, "len {0 1 2 3 4 5}", "6");
+    assert_repr(e, "cons 0 {}", "{0}");
+    assert_repr(e, "cons 1 {2 {3}}", "{1 2 {3}}");
+    assert_repr(e, "init {3 2 1 0}", "{3 2 1}");
+    assert_repr(e, "head {0 1 2 3}", "{0}");
+    lenv_del(e);
 }
 TESTMETHOD(test_number_err) {
-    assert_error("+ 9999999999999999999 1", LERR_BAD_NUM);
-    assert_error("+ 12 2a3", LERR_PARSE_ERROR);
+    lenv *e = lenv_new();
+    assert_error(e, "+ 9999999999999999999 1", LERR_BAD_NUM);
+    assert_error(e, "+ 12 2a3", LERR_UNBOUND_SYM);
+    lenv_del(e);
 }
 TESTMETHOD(test_div_zero) {
-    assert_error("/ 10 0", LERR_DIV_ZERO);
+    lenv *e = lenv_new();
+    assert_error(e, "/ 10 0", LERR_DIV_ZERO);
+    lenv_del(e);
 }
 TESTMETHOD(test_flt_err) {
-    assert_error("+ 2 3.1", LERR_INVALID_OPERAND);
-    assert_error("+ 1.1 2.", LERR_PARSE_ERROR);
+    lenv *e = lenv_new();
+    assert_error(e, "+ 2 3.1", LERR_INVALID_OPERAND);
+    assert_error(e, "+ 1.1 2.", LERR_PARSE_ERROR);
+    lenv_del(e);
 }
 TESTMETHOD(test_flt) {
-    assert_repr("+ 1.2 1.3", "2.5");
-    assert_repr("* 2.0 3.14", "6.28");
+    lenv *e = lenv_new();
+    assert_repr(e, "+ 1.2 1.3", "2.5");
+    assert_repr(e, "* 2.0 3.14", "6.28");
+    lenv_del(e);
 }
 TESTMETHOD(test_noeval) {
-    assert_repr_noeval("", "()");
-    assert_repr_noeval("+", "(+)");
-    assert_error_noeval("2,", LERR_PARSE_ERROR);
-    assert_repr_noeval("+ 2 2", "(+ 2 2)");
-    assert_repr_noeval("+ 2 2.1", "(+ 2 2.1)");
-    assert_repr_noeval("5", "(5)");
+    lenv *e = lenv_new_no_builtins();
+    assert_repr_noeval(e, "", "()");
+    assert_repr_noeval(e, "+", "(+)");
+    assert_error_noeval(e, "2,", LERR_PARSE_ERROR);
+    assert_repr_noeval(e, "+ 2 2", "(+ 2 2)");
+    assert_repr_noeval(e, "+ 2 2.1", "(+ 2 2.1)");
+    assert_repr_noeval(e, "5", "(5)");
+    lenv_del(e);
 }
 TESTMETHOD(test) {
-    assert_repr("+ 1 -2 6", "5");
-    assert_repr("max 1 5 3", "5");
-    assert_repr("min 1 5 3", "1");
-    assert_repr("^ 4 2", "16");
-    assert_repr("% 10 6", "4");
-    assert_repr("- (* 10 10) (+ 1 1 1)", "97");
-    assert_repr("* 10 (+ 1 51)", "520");
-    assert_repr("* 1 2 6", "12");
-    assert_repr("+ 1 2 6", "9");
+    lenv *e = lenv_new();
+    assert_repr(e, "+ 1 -2 6", "5");
+    assert_repr(e, "max 1 5 3", "5");
+    assert_repr(e, "min 1 5 3", "1");
+    assert_repr(e, "^ 4 2", "16");
+    assert_repr(e, "% 10 6", "4");
+    assert_repr(e, "- (* 10 10) (+ 1 1 1)", "97");
+    assert_repr(e, "* 10 (+ 1 51)", "520");
+    assert_repr(e, "/ 42 2", "21");
+    assert_repr(e, "* 1 2 6", "12");
+    assert_repr(e, "+ 1 2 6", "9");
+    lenv_del(e);
 }
 TESTMETHOD(test_sappendf) {
     char *p = 0;

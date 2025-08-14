@@ -6,7 +6,7 @@ UT_SLOW:=0
 UT_NOPY:=1
 UT_NOGT:=1
 UT_VERBOSE:=1
-UT_NOCAP:=1
+UT_NOCAP:=0
 
 # Usual macros (CFLAGS, CXXFLAGS, LDFLAGS, LDLIBS, LD_LIBRARY_PATH, ..) can be defined, eg:
 #CXXFLAGS:=-I this/path -D THAT_SYMBOL ...

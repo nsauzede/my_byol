@@ -1,12 +1,10 @@
 //#define DUMP_AST
 #include "../mpc/mpc.c"
 /***************************************************************/
-const char *lispy_grammar =
-        "number  : /-?[0-9]+/ ;\
+const char *lispy_grammar = "\
+        number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
-        symbol  : '+' | '-' | '*' | '/' | '%' | '^' | \"min\" | \"max\" | \
-                  \"list\" | \"eval\" | \"head\" | \"tail\" | \"join\" | \
-                  \"len\" | \"cons\" | \"init\" ;\
+        symbol  : /[a-zA-Z0-9_+\\-*\\/^%\\\\=<>!&]+/ ;\
         sexpr   : '(' <expr>* ')' ;\
         qexpr   : '{' <expr>* '}' ;\
         expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
@@ -20,6 +18,7 @@ struct lval {
     long num;
     double flt;
     char *err;
+    int errcode;
     char *sym;
     lbuiltin fun;
     // {S,Q}-expr
@@ -33,9 +32,12 @@ struct lenv {
 };
 enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
        LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT };
-enum { LERR_PARSE_ERROR, LERR_BAD_NUM, LERR_BAD_FLT,
-       LERR_INVALID_OPERAND, LERR_DIV_ZERO, LERR_UNBOUND_SYM, };
+enum { LERR_FIRST, LERR_UNSPECIFIED = LERR_FIRST,
+        LERR_PARSE_ERROR, LERR_BAD_NUM, LERR_BAD_FLT,
+        LERR_INVALID_OPERAND, LERR_DIV_ZERO, LERR_UNBOUND_SYM,
+    LERR_LAST} lerrcodes;
 const char *lerrors[] = {
+    [LERR_UNSPECIFIED] = "(unspecified error)",
     [LERR_PARSE_ERROR] = "Parse Error!",
     [LERR_BAD_NUM] = "Invalid Number!",
     [LERR_BAD_FLT] = "Invalid Float!",
@@ -43,11 +45,20 @@ const char *lerrors[] = {
     [LERR_DIV_ZERO] = "Division By Zero!",
     [LERR_UNBOUND_SYM] = "Unbound Symbol!",
 };
-lval *lval_err(const char *err) {
+lval *lval_void(void) { return calloc(1,sizeof(lval)); }
+lval *lval_err(int errcode, const char *err) {
+    if (errcode < LERR_FIRST || errcode >= LERR_LAST) {
+        printf("%s: invalid errcode=%d\n", __func__, errcode);
+        exit(1);
+    }
+    if (!err) err = lerrors[errcode];
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1)};
+    *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1),.errcode=errcode};
     strcpy(ret->err, err);
     return ret;
+}
+lval *lval_errcode(int errcode) {
+    return lval_err(errcode, 0);
 }
 lval *lval_num(long num) {
     lval *ret = malloc(sizeof(lval));
@@ -128,7 +139,16 @@ lval *lval_copy(lval *v) {
     }
     return x;
 }
-lenv *lenv_new(void) { return calloc(1, sizeof(lenv)); }
+lenv *lenv_new_no_builtins(void) {
+    lenv *e = calloc(1, sizeof(lenv));
+    return e;
+}
+void lenv_add_builtins(lenv *e);
+lenv *lenv_new(void) {
+    lenv *e = lenv_new_no_builtins();
+    lenv_add_builtins(e);
+    return e;
+}
 void lenv_del(lenv *e) {
     for (int i = 0; i < e->count; i++) {
         free(e->syms[i]);
@@ -151,10 +171,9 @@ lval *lenv_get(lenv *e, lval *k) {
     if (pitem) {
         return lval_copy(*pitem);
     }
-    return lval_err(lerrors[LERR_UNBOUND_SYM]);
+    return lval_errcode(LERR_UNBOUND_SYM);
 }
 void lenv_put(lenv *e, lval *k, lval *v) {
-    printf("Environ has %d items\n", e->count);
     lval **pitem = lenv_find(e, k);
     if (pitem) {
         lval_del(*pitem);
@@ -250,12 +269,12 @@ void ast_print(int level, mpc_ast_t *a) {
 lval *lval_read_num(mpc_ast_t *a) {
     errno = 0;
     long num = strtol(a->contents, NULL, 10);
-    return errno==0?lval_num(num):lval_err(lerrors[LERR_BAD_NUM]);
+    return errno==0?lval_num(num):lval_errcode(LERR_BAD_NUM);
 }
 lval *lval_read_flt(mpc_ast_t *a) {
     errno = 0;
     double flt = strtod(a->contents, NULL);
-    return errno==0?lval_flt(flt):lval_err(lerrors[LERR_BAD_FLT]);
+    return errno==0?lval_flt(flt):lval_errcode(LERR_BAD_FLT);
 }
 lval *lval_add(lval *v, lval *x) {
     v->count++;
@@ -347,10 +366,15 @@ lval *lval_take(lval *v, int i) {
     lval_del(v);
     return x;
 }
-lval *lval_eval_sexpr(lval *v);
-lval *lval_eval(lval *v) {
+lval *lval_eval_sexpr(lenv *e, lval *v);
+lval *lval_eval(lenv *e, lval *v) {
+    if (v->type == LVAL_SYM) {
+        lval *x = lenv_get(e, v);
+        lval_del(v);
+        return x;
+    }
     if (v->type == LVAL_SEXPR) {
-        return lval_eval_sexpr(v);
+        return lval_eval_sexpr(e, v);
     }
     return v;
 }
@@ -372,7 +396,7 @@ void builtin_sub(lval *x, lval *y) {
 }
 lval *builtin_mod_or_fail(lval *x, lval *y) {
     lval *fail = 0;
-    if (x->type == LVAL_FLT) fail = lval_err(lerrors[LERR_INVALID_OPERAND]);
+    if (x->type == LVAL_FLT) fail = lval_errcode(LERR_INVALID_OPERAND);
     else x->num %= y->num;
     return fail;
 }
@@ -392,16 +416,16 @@ lval *builtin_div_or_fail(lval *x, lval *y) {
     lval *fail = 0;
     if (x->type == LVAL_FLT) {
         if (y->flt == 0) {
-            fail = lval_err(lerrors[LERR_DIV_ZERO]);
+            fail = lval_errcode(LERR_DIV_ZERO);
         } else x->flt /= y->flt;
     } else {
         if (y->num == 0) {
-            fail = lval_err(lerrors[LERR_DIV_ZERO]);
+            fail = lval_errcode(LERR_DIV_ZERO);
         } else x->num /= y->num;
     }
     return fail;
 }
-lval *builtin_op(lval *v, char *op) {
+lval *builtin_op(lenv *e, lval *v, char *op) {
     int flt = 0;
     if (v->cell[0]->type == LVAL_FLT) {
         flt = 1;
@@ -410,12 +434,12 @@ lval *builtin_op(lval *v, char *op) {
         if (flt) {
             if (v->cell[i]->type != LVAL_FLT) {
                 lval_del(v);
-                return lval_err(lerrors[LERR_INVALID_OPERAND]);
+                return lval_errcode(LERR_INVALID_OPERAND);
             }
         } else {
             if (v->cell[i]->type != LVAL_NUM) {
                 lval_del(v);
-                return lval_err(lerrors[LERR_INVALID_OPERAND]);
+                return lval_errcode(LERR_INVALID_OPERAND);
             }
         }
     }
@@ -451,19 +475,19 @@ lval *builtin_op(lval *v, char *op) {
     return x;
 }
 #define LASSERT(v, cond, err) \
-    do {if (!(cond)){lval_del(v); return lval_err(err);}} while(0)
-lval *builtin_list(lval *v) {
+    do {if (!(cond)){lval_del(v); return lval_err(LERR_INVALID_OPERAND, err);}} while(0)
+lval *builtin_list(lenv *e, lval *v) {
     v->type = LVAL_QEXPR;
     return v;
 }
-lval *builtin_eval(lval *v) {
+lval *builtin_eval(lenv *e, lval *v) {
     LASSERT(v, v->count == 1, "Function 'eval' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'eval' requires Q-expr arg!");
     lval *x = lval_take(v, 0);
     x->type = LVAL_SEXPR;
-    return lval_eval(x);
+    return lval_eval(e, x);
 }
-lval *builtin_head(lval *v) {
+lval *builtin_head(lenv *e, lval *v) {
     LASSERT(v, v->count == 1, "Function 'head' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'head' requires Q-expr arg!");
     LASSERT(v, v->cell[0]->count > 0, "Function 'head' requires non-empty Q-expr arg!");
@@ -471,7 +495,7 @@ lval *builtin_head(lval *v) {
     while (x->count > 1) { lval_del(lval_pop(x, 1)); }
     return x;
 }
-lval *builtin_tail(lval *v) {
+lval *builtin_tail(lenv *e, lval *v) {
     LASSERT(v, v->count == 1, "Function 'tail' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'tail' requires Q-expr arg!");
     LASSERT(v, v->cell[0]->count > 0, "Function 'tail' requires non-empty Q-expr arg!");
@@ -479,7 +503,7 @@ lval *builtin_tail(lval *v) {
     lval_del(lval_pop(x, 0));
     return x;
 }
-lval *builtin_join(lval *v) {
+lval *builtin_join(lenv *e, lval *v) {
     for (int i = 0; i < v->count; i++) {
         LASSERT(v, v->cell[i]->type == LVAL_QEXPR, "Function 'join' requires only Q-expr args!");
     }
@@ -490,14 +514,14 @@ lval *builtin_join(lval *v) {
     lval_del(v);
     return x;
 }
-lval *builtin_len(lval *v) {
+lval *builtin_len(lenv *e, lval *v) {
     LASSERT(v, v->count == 1, "Function 'len' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'len' requires Q-expr arg!");
     lval *x = lval_num(v->cell[0]->count);
     lval_del(v);
     return x;
 }
-lval *builtin_cons(lval *v) {
+lval *builtin_cons(lenv *e, lval *v) {
     LASSERT(v, v->count == 2, "Function 'cons' requires exactly two arguments!");
     LASSERT(v, v->cell[0]->type == LVAL_NUM, "Function 'cons' requires arg1 to be a number!");
     LASSERT(v, v->cell[1]->type == LVAL_QEXPR, "Function 'cons' requires arg2 to be a Q-expr!");
@@ -512,7 +536,7 @@ lval *builtin_cons(lval *v) {
     lval_del(v);
     return z;
 }
-lval *builtin_init(lval *v) {
+lval *builtin_init(lenv *e, lval *v) {
     LASSERT(v, v->count == 1, "Function 'init' requires exactly one argument!");
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'init' requires Q-expr arg!");
     LASSERT(v, v->cell[0]->count > 0, "Function 'init' requires non-empty Q-expr arg!");
@@ -520,24 +544,76 @@ lval *builtin_init(lval *v) {
     lval_del(lval_pop(x, x->count - 1));
     return x;
 }
-lval *builtin(lval *v, char *func) {
-    if (!strcmp("list", func)) { return builtin_list(v); }
-    else if (!strcmp("eval", func)) { return builtin_eval(v); }
-    else if (!strcmp("head", func)) { return builtin_head(v); }
-    else if (!strcmp("tail", func)) { return builtin_tail(v); }
-    else if (!strcmp("join", func)) { return builtin_join(v); }
-    else if (!strcmp("len", func)) { return builtin_len(v); }
-    else if (!strcmp("cons", func)) { return builtin_cons(v); }
-    else if (!strcmp("init", func)) { return builtin_init(v); }
-    else if (strstr("+-/*%^ min max", func)) { return builtin_op(v, func); }
-    lval_del(v);
-    return lval_err("Unknown Builtin Function!");
+void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
+    lval *k = lval_sym(name);
+    lval *v = lval_fun(fun);
+    lenv_put(e, k, v);
+    lval_del(k); lval_del(v);
 }
-lval *lval_eval_sexpr(lval *v) {
+lval *builtin_add_(lenv *e, lval *v) {
+    return builtin_op(e, v, "+");
+}
+lval *builtin_sub_(lenv *e, lval *v) {
+    return builtin_op(e, v, "-");
+}
+lval *builtin_mul_(lenv *e, lval *v) {
+    return builtin_op(e, v, "*");
+}
+lval *builtin_div_(lenv *e, lval *v) {
+    return builtin_op(e, v, "/");
+}
+lval *builtin_mod_(lenv *e, lval *v) {
+    return builtin_op(e, v, "%");
+}
+lval *builtin_pow_(lenv *e, lval *v) {
+    return builtin_op(e, v, "^");
+}
+lval *builtin_min_(lenv *e, lval *v) {
+    return builtin_op(e, v, "min");
+}
+lval *builtin_max_(lenv *e, lval *v) {
+    return builtin_op(e, v, "max");
+}
+void lenv_add_builtins(lenv *e) {
+    if (e->count > 0) {
+        printf("%s: There are already %d items in environment\n", __func__, e->count);
+        exit(1);
+    }
+    lenv_add_builtin(e, "+", builtin_add_);
+    lenv_add_builtin(e, "-", builtin_sub_);
+    lenv_add_builtin(e, "*", builtin_mul_);
+    lenv_add_builtin(e, "/", builtin_div_);
+    lenv_add_builtin(e, "%", builtin_mod_);
+    lenv_add_builtin(e, "^", builtin_pow_);
+    lenv_add_builtin(e, "min", builtin_min_);
+    lenv_add_builtin(e, "max", builtin_max_);
+    lenv_add_builtin(e, "list", builtin_list);
+    lenv_add_builtin(e, "eval", builtin_eval);
+    lenv_add_builtin(e, "head", builtin_head);
+    lenv_add_builtin(e, "tail", builtin_tail);
+    lenv_add_builtin(e, "join", builtin_join);
+    lenv_add_builtin(e, "len", builtin_len);
+    lenv_add_builtin(e, "cons", builtin_cons);
+    lenv_add_builtin(e, "init", builtin_init);
+}
+lval *builtin(lenv *e, lval *v, char *func) {
+    if (!strcmp("list", func)) { return builtin_list(e, v); }
+    else if (!strcmp("eval", func)) { return builtin_eval(e, v); }
+    else if (!strcmp("head", func)) { return builtin_head(e, v); }
+    else if (!strcmp("tail", func)) { return builtin_tail(e, v); }
+    else if (!strcmp("join", func)) { return builtin_join(e, v); }
+    else if (!strcmp("len", func)) { return builtin_len(e, v); }
+    else if (!strcmp("cons", func)) { return builtin_cons(e, v); }
+    else if (!strcmp("init", func)) { return builtin_init(e, v); }
+    else if (strstr("+-/*%^ min max", func)) { return builtin_op(e, v, func); }
+    lval_del(v);
+    return lval_err(0, "Unknown Builtin Function!");
+}
+lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->type == LVAL_ERR) return v;
     if (v->count == 0) return v;
     for (int i = 0; i < v->count; i++) {
-        v->cell[i] = lval_eval(v->cell[i]);
+        v->cell[i] = lval_eval(e, v->cell[i]);
     }
     for (int i = 0; i < v->count; i++) {
         if (v->cell[i]->type == LVAL_ERR) {
@@ -546,11 +622,11 @@ lval *lval_eval_sexpr(lval *v) {
     }
     if (v->count == 1) return lval_take(v, 0);
     lval *f = lval_pop(v, 0);
-    if (f->type != LVAL_SYM) {
+    if (f->type != LVAL_FUN) {
         lval_del(f); lval_del(v);
-        return lval_err("S-expression Does not start with symbol!");
+        return lval_err(0, "S-expression does not start with a function!");
     }
-    lval *result = builtin(v, f->sym);
+    lval *result = f->fun(e, v);
     lval_del(f);
     return result;
 }
@@ -562,42 +638,35 @@ lval *lread(char *s) {
         res = lval_read(r.output);
         mpc_ast_delete(r.output);
     } else {
-        res = lval_err(lerrors[LERR_PARSE_ERROR]);
+        res = lval_errcode(LERR_PARSE_ERROR);
     }
     return res;
 }
-lval *eval(char *s) {
+lval *eval(lenv *e, char *s) {
     lval *res = lread(s);
     if (res->type == LVAL_ERR) return res;
-    return lval_eval_sexpr(res);
+    return lval_eval_sexpr(e, res);
 }
-char *eval_print(char *s) {
-    char *res = 0;
-    lval *ret = eval(s);
+char *eval_print(lenv *e, char *s) {
+    lval *ret = eval(e, s);
     if (!ret) return 0;
-    lval_println(ret);
-    if (ret->type == LVAL_NUM) {
-        int len = 16;
-        res = malloc(len);
-        snprintf(res, len, "%ld", ret->num);
-    } else {
-        int len = 32;
-        res = malloc(len);
-        snprintf(res, len, "err:%s", ret->err);
-    }
+    char *res = lval_repr(ret);
+    printf("%s\n", res ? res : "(nil)");
     lval_del(ret);
     return res;
 }
 int main() {
     char buf[512];
+    lenv *e = lenv_new();
     while (1) {
         printf("lispy> ");
         if (!fgets(buf, sizeof(buf), stdin)) break;
         char *endl = strchr(buf, '\n');
         if (endl) *endl = 0;
-        char *res = eval_print(buf);
+        char *res = eval_print(e, buf);
         if (res) free(res);
     }
-    printf("Bye!\n");
+    puts("");
+    lenv_del(e);
     return 0;
 }
