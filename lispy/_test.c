@@ -3,29 +3,78 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-#define assert_repr(input,expected) assert_repr_(0,input,expected)
-#define assert_repr_noeval(input,expected) assert_repr_(1,input,expected)
-void assert_repr_(int read_not_eval, char *input, const char *expected) {
-    lval *res = read_not_eval ? lread(input) : eval(input);
-    ASSERT(!!res);
-    char *repr = lval_repr(res);
+void assert_repr_lval(lval *v, const char *expected) {
+    ASSERT(!!v);
+    char *repr = lval_repr(v);
     EXPECT_EQ(expected, repr);
     free(repr);
+}
+void assert_repr_(int read_not_eval, char *input, const char *expected) {
+    lval *res = read_not_eval ? lread(input) : eval(input);
+    assert_repr_lval(res, expected);
+    lval_del(res);
+}
+#define assert_repr(input,expected) assert_repr_(0,input,expected)
+#define assert_repr_noeval(input,expected) assert_repr_(1,input,expected)
+void assert_error_lval(lval *v, int expected) {
+    ASSERT(!!v);
+    EXPECT_EQ(v->type, LVAL_ERR);
+    EXPECT_EQ(lerrors[expected], v->err);
+}
+void assert_error_(int read_not_eval, char *input, int expected) {
+    lval *res = read_not_eval ? lread(input) : eval(input);
+    assert_error_lval(res, expected);
     lval_del(res);
 }
 #define assert_error(input,expected) assert_error_(0,input,expected)
 #define assert_error_noeval(input,expected) assert_error_(1,input,expected)
-void assert_error_(int read_not_eval, char *input, int expected) {
-    lval *res = read_not_eval ? lread(input) : eval(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_ERR);
-    EXPECT_EQ(lerrors[expected], res->err);
+static lval *lfun1(lenv *e, lval *v) { return 0; }
+
+TESTMETHOD(test_env) {
+    lenv *e = lenv_new();
+    lval *k = lval_sym("hello");
+    lval *k2 = lval_copy(k);
+    EXPECT_EQ(k->sym, k2->sym);
+    lval *res = lenv_get(e, k);
+    assert_error_lval(res, LERR_UNBOUND_SYM);
     lval_del(res);
+    lval *v = lval_num(42);
+    lval *v2 = lval_num(666);
+    lenv_put(e, k2, v);
+    res = lenv_get(e, k);
+    assert_repr_lval(res, "42");
+    lval_del(res);
+    lenv_put(e, k2, v2);
+    res = lenv_get(e, k);
+    assert_repr_lval(res, "666");
+    lval_del(res);
+    lval_del(v2);
+    lval_del(v);
+    lval_del(k2);
+    lval_del(k);
+    lenv_del(e);
+}
+TESTMETHOD(test_copy) {
+    lval *err = lval_err("err");
+    lval *err2 = lval_copy(err);
+    EXPECT_EQ(err->err, err2->err);
+    lval_del(err2);
+    lval_del(err);
+    lval *fun = lval_fun(&lfun1);
+    lval *fun2 = lval_copy(fun);
+    EXPECT_EQ((void*)fun->fun, fun2->fun);
+    lval_del(fun2);
+    lval_del(fun);
+    lval *num = lval_num(42);
+    lval *num2 = lval_copy(num);
+    EXPECT_EQ(num->num, num2->num);
+    lval_del(num2);
+    lval_del(num);
 }
 TESTMETHOD(test_fun) {
     assert_repr("eval (head {5 10 11 15})", "5");
     assert_repr("(eval (head {+ - + - * /})) 10 20", "30");
-    assert_error_noeval("hello", LERR_PARSE_ERROR);
+    assert_error("hello", LERR_PARSE_ERROR);
     //assert_repr("+", "<function>");
     //assert_repr("eval (head {+ - + - * /})", "<function>");
 }

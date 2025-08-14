@@ -26,15 +26,22 @@ struct lval {
     int count;
     struct lval **cell;
 };
+struct lenv {
+    int count;
+    char **syms;
+    lval **vals;
+};
 enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
        LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT };
-enum { LERR_DIV_ZERO, LERR_BAD_NUM, LERR_BAD_FLT, LERR_PARSE_ERROR, LERR_INVALID_OPERAND };
+enum { LERR_PARSE_ERROR, LERR_BAD_NUM, LERR_BAD_FLT,
+       LERR_INVALID_OPERAND, LERR_DIV_ZERO, LERR_UNBOUND_SYM, };
 const char *lerrors[] = {
-    [LERR_DIV_ZERO] = "Division By Zero!",
+    [LERR_PARSE_ERROR] = "Parse Error!",
     [LERR_BAD_NUM] = "Invalid Number!",
     [LERR_BAD_FLT] = "Invalid Float!",
     [LERR_INVALID_OPERAND] = "Invalid Operand!",
-    [LERR_PARSE_ERROR] = "Parse Error!",
+    [LERR_DIV_ZERO] = "Division By Zero!",
+    [LERR_UNBOUND_SYM] = "Unbound Symbol!",
 };
 lval *lval_err(const char *err) {
     lval *ret = malloc(sizeof(lval));
@@ -74,6 +81,7 @@ lval *lval_flt(double flt) {
     return ret;
 }
 void lval_del(lval *v) {
+    if (!v)return;
     switch (v->type) {
         case LVAL_NUM:
         case LVAL_FUN:
@@ -94,6 +102,72 @@ void lval_del(lval *v) {
             break;
     }
     free(v);
+}
+lval *lval_copy(lval *v) {
+    lval *x = malloc(sizeof(lval));
+    x->type = v->type;
+    int len;
+    switch (v->type) {
+        case LVAL_ERR:
+            len = strlen(v->err) + 1;
+            x->err = malloc(len);
+            memcpy(x->err, v->err, len);
+            break;
+        case LVAL_FUN:x->fun = v->fun;break;
+        case LVAL_NUM:x->num = v->num;break;
+        case LVAL_SYM:
+            len = strlen(v->sym) + 1;
+            x->sym = malloc(len);
+            memcpy(x->sym, v->sym, len);
+            break;
+        case LVAL_SEXPR:
+        case LVAL_QEXPR:
+            printf("%s: TODO\n", __func__);
+            exit(1);
+            break;
+    }
+    return x;
+}
+lenv *lenv_new(void) { return calloc(1, sizeof(lenv)); }
+void lenv_del(lenv *e) {
+    for (int i = 0; i < e->count; i++) {
+        free(e->syms[i]);
+        lval_del(e->vals[i]);
+    }
+    free(e->syms);
+    free(e->vals);
+    free(e);
+}
+lval **lenv_find(lenv *e, lval *k) {
+    for (int i = 0; i < e->count; i++) {
+        if (!strcmp(e->syms[i], k->sym)) {
+            return &e->vals[i];
+        }
+    }
+    return 0;
+}
+lval *lenv_get(lenv *e, lval *k) {
+    lval **pitem = lenv_find(e, k);
+    if (pitem) {
+        return lval_copy(*pitem);
+    }
+    return lval_err(lerrors[LERR_UNBOUND_SYM]);
+}
+void lenv_put(lenv *e, lval *k, lval *v) {
+    printf("Environ has %d items\n", e->count);
+    lval **pitem = lenv_find(e, k);
+    if (pitem) {
+        lval_del(*pitem);
+        *pitem = lval_copy(v);
+        return;
+    }
+    int len = sizeof(lval*) * (e->count + 1);
+    e->syms = realloc(e->syms, len);
+    e->vals = realloc(e->vals, len);
+    e->syms[e->count] = malloc(strlen(k->sym)+1);
+    strcpy(e->syms[e->count], k->sym);
+    e->vals[e->count] = lval_copy(v);
+    e->count++;
 }
 int sappendf(char **p, int *plen, const char *fmt, ...) {
     if (!p || !plen)return -1;
