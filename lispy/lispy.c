@@ -12,18 +12,23 @@ const char *lispy_grammar =
         expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
         lispy   : /^/ <expr>* /$/ ;";
 #include <math.h>
-typedef struct lval {
+typedef struct lval lval;
+typedef struct lenv lenv;
+typedef lval *(*lbuiltin)(lenv *, lval *);
+struct lval {
     int type;
     long num;
     double flt;
     char *err;
     char *sym;
+    lbuiltin fun;
     // {S,Q}-expr
     int count;
     struct lval **cell;
-} lval;
-enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT };
-enum { LERR_DIV_ZERO, LERR_BAD_SYM, LERR_BAD_NUM, LERR_BAD_FLT, LERR_PARSE_ERROR, LERR_INVALID_OPERAND };
+};
+enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
+       LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT };
+enum { LERR_DIV_ZERO, LERR_BAD_NUM, LERR_BAD_FLT, LERR_PARSE_ERROR, LERR_INVALID_OPERAND };
 const char *lerrors[] = {
     [LERR_DIV_ZERO] = "Division By Zero!",
     [LERR_BAD_NUM] = "Invalid Number!",
@@ -31,20 +36,26 @@ const char *lerrors[] = {
     [LERR_INVALID_OPERAND] = "Invalid Operand!",
     [LERR_PARSE_ERROR] = "Parse Error!",
 };
+lval *lval_err(const char *err) {
+    lval *ret = malloc(sizeof(lval));
+    *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1)};
+    strcpy(ret->err, err);
+    return ret;
+}
 lval *lval_num(long num) {
     lval *ret = malloc(sizeof(lval));
     *ret = (lval){LVAL_NUM,.num=num};
-    return ret;
-}
-lval *lval_flt(double flt) {
-    lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_FLT,.flt=flt};
     return ret;
 }
 lval *lval_sym(char *sym) {
     lval *ret = malloc(sizeof(lval));
     *ret = (lval){LVAL_SYM,.sym=malloc(strlen(sym) + 1)};
     strcpy(ret->sym, sym);
+    return ret;
+}
+lval *lval_fun(lbuiltin fun) {
+    lval *ret = malloc(sizeof(lval));
+    *ret = (lval){LVAL_FUN,.fun=fun};
     return ret;
 }
 lval *lval_sexpr(void) {
@@ -57,16 +68,17 @@ lval *lval_qexpr(void) {
     *ret = (lval){LVAL_QEXPR,.count=0,.cell=NULL};
     return ret;
 }
-lval *lval_err(const char *err) {
+lval *lval_flt(double flt) {
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1)};
-    strcpy(ret->err, err);
+    *ret = (lval){LVAL_FLT,.flt=flt};
     return ret;
 }
 void lval_del(lval *v) {
     switch (v->type) {
-        case LVAL_NUM:break;
-        case LVAL_FLT:break;
+        case LVAL_NUM:
+        case LVAL_FUN:
+        case LVAL_FLT:
+            break;
         case LVAL_SYM:
             free(v->sym);
             break;
@@ -122,7 +134,8 @@ void lval_repr_(char **s, int *slen, lval *v) {
     if (!v) return;
     switch (v->type) {
         case LVAL_NUM:sappendf(s, slen, "%li", v->num);break;
-        case LVAL_FLT:sappendf(s, slen, "%f", v->flt);break;
+        case LVAL_FUN:sappendf(s, slen, "<function>");break;
+        case LVAL_FLT:sappendf(s, slen, "%.15g", v->flt);break;
         case LVAL_SYM:sappendf(s, slen, "%s", v->sym);break;
         case LVAL_ERR:sappendf(s, slen, "%s", v->err);break;
         case LVAL_SEXPR:lval_expr_repr(s, slen, v, '(', ')');break;
@@ -135,26 +148,11 @@ char *lval_repr(lval *v) {
     lval_repr_(&repr, &len, v);
     return repr;
 }
-void lval_print(lval *v);
-void lval_expr_print(lval *v, char open, char close) {
-    putchar(open);
-    for (int i = 0; i < v->count; i++) {
-        lval_print(v->cell[i]);
-        if (i != v->count - 1) {
-            putchar(' ');
-        }
-    }
-    putchar(close);
-}
 void lval_print(lval *v) {
-    if (!v) return;
-    switch (v->type) {
-        case LVAL_NUM:printf("%li", v->num);break;
-        case LVAL_FLT:printf("%f", v->flt);break;
-        case LVAL_SYM:printf("%s", v->sym);break;
-        case LVAL_ERR:printf("Error: %s", v->err);break;
-        case LVAL_SEXPR:lval_expr_print(v, '(', ')');break;
-        case LVAL_QEXPR:lval_expr_print(v, '{', '}');break;
+    char *repr = lval_repr(v);
+    if (repr) {
+        printf("%s", repr);
+        free(repr);
     }
 }
 void lval_println(lval *v) {
@@ -457,7 +455,7 @@ lval *builtin(lval *v, char *func) {
     else if (!strcmp("len", func)) { return builtin_len(v); }
     else if (!strcmp("cons", func)) { return builtin_cons(v); }
     else if (!strcmp("init", func)) { return builtin_init(v); }
-    else if (strstr("+-/*%^minmax", func)) { return builtin_op(v, func); }
+    else if (strstr("+-/*%^ min max", func)) { return builtin_op(v, func); }
     lval_del(v);
     return lval_err("Unknown Builtin Function!");
 }

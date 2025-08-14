@@ -3,71 +3,34 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-void assert_repr(char *input, const char *expected) {
-    lval *res = eval(input);
+#define assert_repr(input,expected) assert_repr_(0,input,expected)
+#define assert_repr_noeval(input,expected) assert_repr_(1,input,expected)
+void assert_repr_(int read_not_eval, char *input, const char *expected) {
+    lval *res = read_not_eval ? lread(input) : eval(input);
     ASSERT(!!res);
     char *repr = lval_repr(res);
     EXPECT_EQ(expected, repr);
     free(repr);
     lval_del(res);
 }
-void assert_qexpr(char *input, const char *expected) {
-    lval *res = eval(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_QEXPR);
-    char *repr = lval_repr(res);
-    EXPECT_EQ(expected, repr);
-    free(repr);
-    lval_del(res);
-}
-void assert_sexpr(char *input, const char *expected) {
-    lval *res = eval(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_SEXPR);
-    char *repr = lval_repr(res);
-    EXPECT_EQ(expected, repr);
-    free(repr);
-    lval_del(res);
-}
-void assert_sexpr_noeval(char *input, const char *expected) {
-    lval *res = lread(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_SEXPR);
-    char *repr = lval_repr(res);
-    EXPECT_EQ(expected, repr);
-    free(repr);
-    lval_del(res);
-}
-void assert_flt(char *input, double expected) {
-    lval *res = eval(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_FLT);
-    EXPECT_EQ(expected, res->flt);
-    lval_del(res);
-}
-void assert_num(char *input, long expected) {
-    lval *res = eval(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_NUM);
-    EXPECT_EQ(expected, res->num);
-    lval_del(res);
-}
-void assert_error(char *input, int error) {
-    lval *res = eval(input);
+#define assert_error(input,expected) assert_error_(0,input,expected)
+#define assert_error_noeval(input,expected) assert_error_(1,input,expected)
+void assert_error_(int read_not_eval, char *input, int expected) {
+    lval *res = read_not_eval ? lread(input) : eval(input);
     ASSERT(!!res);
     EXPECT_EQ(res->type, LVAL_ERR);
-    EXPECT_EQ(lerrors[error], res->err);
+    EXPECT_EQ(lerrors[expected], res->err);
     lval_del(res);
 }
-void assert_error_noeval(char *input, int error) {
-    lval *res = lread(input);
-    ASSERT(!!res);
-    EXPECT_EQ(res->type, LVAL_ERR);
-    EXPECT_EQ(lerrors[error], res->err);
-    lval_del(res);
+TESTMETHOD(test_fun) {
+    assert_repr("eval (head {5 10 11 15})", "5");
+    assert_repr("(eval (head {+ - + - * /})) 10 20", "30");
+    assert_error_noeval("hello", LERR_PARSE_ERROR);
+    //assert_repr("+", "<function>");
+    //assert_repr("eval (head {+ - + - * /})", "<function>");
 }
 TESTMETHOD(test_sexpr) {
-    assert_sexpr("", "()");
+    assert_repr("", "()");
 }
 TESTMETHOD(test_qexpr) {
     assert_repr("list 1 2 3 4", "{1 2 3 4}");
@@ -95,27 +58,27 @@ TESTMETHOD(test_flt_err) {
     assert_error("+ 1.1 2.", LERR_PARSE_ERROR);
 }
 TESTMETHOD(test_flt) {
-    assert_flt("+ 1.2 1.3", 2.5);
-    assert_flt("* 2.0 3.14", 6.28);
+    assert_repr("+ 1.2 1.3", "2.5");
+    assert_repr("* 2.0 3.14", "6.28");
 }
 TESTMETHOD(test_noeval) {
-    assert_sexpr_noeval("", "()");
-    assert_sexpr_noeval("+", "(+)");
+    assert_repr_noeval("", "()");
+    assert_repr_noeval("+", "(+)");
     assert_error_noeval("2,", LERR_PARSE_ERROR);
-    assert_sexpr_noeval("+ 2 2", "(+ 2 2)");
-    assert_sexpr_noeval("+ 2 2.1", "(+ 2 2.100000)");
-    assert_sexpr_noeval("5", "(5)");
+    assert_repr_noeval("+ 2 2", "(+ 2 2)");
+    assert_repr_noeval("+ 2 2.1", "(+ 2 2.1)");
+    assert_repr_noeval("5", "(5)");
 }
 TESTMETHOD(test) {
-    assert_num("+ 1 -2 6", 5);
-    assert_num("max 1 5 3", 5);
-    assert_num("min 1 5 3", 1);
-    assert_num("^ 4 2", 16);
-    assert_num("% 10 6", 4);
-    assert_num("- (* 10 10) (+ 1 1 1)", 97);
-    assert_num("* 10 (+ 1 51)", 520);
-    assert_num("* 1 2 6", 12);
-    assert_num("+ 1 2 6", 9);
+    assert_repr("+ 1 -2 6", "5");
+    assert_repr("max 1 5 3", "5");
+    assert_repr("min 1 5 3", "1");
+    assert_repr("^ 4 2", "16");
+    assert_repr("% 10 6", "4");
+    assert_repr("- (* 10 10) (+ 1 1 1)", "97");
+    assert_repr("* 10 (+ 1 51)", "520");
+    assert_repr("* 1 2 6", "12");
+    assert_repr("+ 1 2 6", "9");
 }
 TESTMETHOD(test_sappendf) {
     char *p = 0;
