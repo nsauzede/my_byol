@@ -1,7 +1,14 @@
-//#define DUMP_AST
 #include "../mpc/mpc.c"
 /***************************************************************/
+#include <math.h>
 #define TODO() do{printf("%s: TODO\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
+#define FIXME() do{printf("%s: FIXME\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
+#define LASSERT(v, cond, fmt, ...) do {if (!(cond)){lval *err = lval_err(LERR_INVALID_OPERAND, fmt, ##__VA_ARGS__);lval_del(v); return err;}} while(0)
+#define LASSERT_NUM(fun,v,n) LASSERT(v,v->count==n,"Function '%s' requires exactly %d argument%s! (%d)",fun,n,n>1?"s":"",v->count)
+#define LASSERT_MIN(fun,v,n) LASSERT(v,v->count>=n,"Function '%s' requires at least %d argument%s! (%d)",fun,n,n>1?"s":"",v->count)
+#define LASSERT_INUM(fun,v,i,n) LASSERT(v,v->cell[i]->count==n,"Function '%s' argument %d size must be exactly %d! (%d)",fun,i,n,v->cell[i]->count)
+#define LASSERT_IMIN(fun,v,i,n) LASSERT(v,v->cell[i]->count>=n,"Function '%s' argument %d size must be at least %d! (%d)",fun,i,n,v->cell[i]->count)
+#define LASSERT_ITYPE(fun,v,i,t) LASSERT(v,v->cell[i]->type==t,"Function '%s' argument %d type must be %s! (%s)",fun,i,ltype_name(t),ltype_name(v->cell[i]->type))
 const char *lispy_grammar = "\
         number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
@@ -10,7 +17,6 @@ const char *lispy_grammar = "\
         qexpr   : '{' <expr>* '}' ;\
         expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
         lispy   : /^/ <expr>* /$/ ;";
-#include <math.h>
 typedef struct lval lval;
 typedef struct lenv lenv;
 typedef lval *(*lbuiltin)(lenv *, lval *);
@@ -22,7 +28,6 @@ struct lval {
     int errcode;
     char *sym;
     lbuiltin fun;
-    // {S,Q}-expr
     int count;
     struct lval **cell;
 };
@@ -46,16 +51,43 @@ const char *lerrors[] = {
     [LERR_DIV_ZERO] = "Division By Zero!",
     [LERR_UNBOUND_SYM] = "Unbound Symbol!",
 };
+const char *ltype_name(int t) {
+    switch (t) {
+        case LVAL_ERR:return "Error";
+        case LVAL_NUM:return "Number";
+        case LVAL_SYM:return "Symbol";
+        case LVAL_FUN:return "Function";
+        case LVAL_SEXPR:return "S-Expression";
+        case LVAL_QEXPR:return "Q-Expression";
+        case LVAL_FLT:return "Float";
+        default: return "Unknown?";
+    }
+}
 lval *lval_void(void) { return calloc(1,sizeof(lval)); }
-lval *lval_err(int errcode, const char *err) {
+lval *lval_err(int errcode, const char *fmt, ...) {
     if (errcode < LERR_FIRST || errcode >= LERR_LAST) {
         printf("%s: invalid errcode=%d\n", __func__, errcode);
         exit(1);
     }
-    if (!err) err = lerrors[errcode];
+    char *err = 0;
+    if (!fmt) {
+        err = strdup(lerrors[errcode]);
+    } else {
+        va_list args;
+        va_start(args, fmt);
+        int len = vsnprintf(0, 0, fmt, args);
+        if (len <= 0) {
+            printf("%s: vsnprintf returned %d\n", __func__, len);
+            exit(1);
+        }
+        va_end(args);
+        err = malloc(++len);
+        va_start(args, fmt);
+        vsnprintf(err, len, fmt, args);
+        va_end(args);
+    }
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1),.errcode=errcode};
-    strcpy(ret->err, err);
+    *ret = (lval){LVAL_ERR,.err=err,.errcode=errcode};
     return ret;
 }
 lval *lval_errcode(int errcode) {
@@ -175,7 +207,7 @@ lval *lenv_get(lenv *e, lval *k) {
     if (pitem) {
         return lval_copy(*pitem);
     }
-    return lval_errcode(LERR_UNBOUND_SYM);
+    return lval_err(LERR_UNBOUND_SYM, "Unbound Symbol '%s'!", k->sym);
 }
 void lenv_put(lenv *e, lval *k, lval *v) {
     lval **pitem = lenv_find(e, k);
@@ -334,9 +366,6 @@ void *parse_lispy(char *s) {
     void *res = 0;
     mpc_result_t r;
     if (mpc_parse("<stdin>", s, Lispy, &r)) {
-#ifdef DUMP_AST
-        printf("\n");ast_print(0, r.output);
-#endif
         res = r.output;
     } else {
         mpc_err_print(r.error);
@@ -430,21 +459,10 @@ lval *builtin_div_or_fail(lval *x, lval *y) {
 }
 lval *builtin_op(lenv *e, lval *v, char *op) {
     int flt = 0;
-    if (v->cell[0]->type == LVAL_FLT) {
-        flt = 1;
-    }
+    if (v->cell[0]->type == LVAL_FLT) { flt = 1; }
     for (int i = 0; i < v->count; i++) {
-        if (flt) {
-            if (v->cell[i]->type != LVAL_FLT) {
-                lval_del(v);
-                return lval_errcode(LERR_INVALID_OPERAND);
-            }
-        } else {
-            if (v->cell[i]->type != LVAL_NUM) {
-                lval_del(v);
-                return lval_errcode(LERR_INVALID_OPERAND);
-            }
-        }
+        if (flt) { LASSERT_ITYPE(op, v, i, LVAL_FLT); }
+        else { LASSERT_ITYPE(op, v, i, LVAL_NUM); }
     }
     lval *x = lval_pop(v, 0);
     if (!strcmp(op, "-") && v->count == 0) builtin_neg(x);
@@ -477,8 +495,6 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
     lval_del(v);
     return x;
 }
-#define LASSERT(v, cond, err) \
-    do {if (!(cond)){lval_del(v); return lval_err(LERR_INVALID_OPERAND, err);}} while(0)
 void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
     lval *k = lval_sym(name);
     lval *v = lval_fun(fun);
@@ -514,50 +530,46 @@ lval *builtin_list(lenv *e, lval *v) {
     return v;
 }
 lval *builtin_eval(lenv *e, lval *v) {
-    LASSERT(v, v->count == 1, "Function 'eval' requires exactly one argument!");
-    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'eval' requires Q-expr arg!");
+    LASSERT_NUM("eval", v, 1);
+    LASSERT_ITYPE("eval", v, 0, LVAL_QEXPR);
     lval *x = lval_take(v, 0);
     x->type = LVAL_SEXPR;
     return lval_eval(e, x);
 }
 lval *builtin_head(lenv *e, lval *v) {
-    LASSERT(v, v->count == 1, "Function 'head' requires exactly one argument!");
-    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'head' requires Q-expr arg!");
-    LASSERT(v, v->cell[0]->count > 0, "Function 'head' requires non-empty Q-expr arg!");
+    LASSERT_NUM("head", v, 1);
+    LASSERT_ITYPE("head", v, 0, LVAL_QEXPR);
+    LASSERT_IMIN("head", v, 0, 1);
     lval *x = lval_take(v, 0);
     while (x->count > 1) { lval_del(lval_pop(x, 1)); }
     return x;
 }
 lval *builtin_tail(lenv *e, lval *v) {
-    LASSERT(v, v->count == 1, "Function 'tail' requires exactly one argument!");
-    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'tail' requires Q-expr arg!");
-    LASSERT(v, v->cell[0]->count > 0, "Function 'tail' requires non-empty Q-expr arg!");
+    LASSERT_NUM("tail", v, 1);
+    LASSERT_ITYPE("tail", v, 0, LVAL_QEXPR);
+    LASSERT_IMIN("tail", v, 0, 1);
     lval *x = lval_take(v, 0);
     lval_del(lval_pop(x, 0));
     return x;
 }
 lval *builtin_join(lenv *e, lval *v) {
-    for (int i = 0; i < v->count; i++) {
-        LASSERT(v, v->cell[i]->type == LVAL_QEXPR, "Function 'join' requires only Q-expr args!");
-    }
+    for (int i = 0; i < v->count; i++) { LASSERT_ITYPE("join", v, i, LVAL_QEXPR); }
     lval *x = lval_pop(v, 0);
-    while (v->count > 0) {
-        x = lval_join(x, lval_pop(v, 0));
-    }
+    while (v->count > 0) { x = lval_join(x, lval_pop(v, 0)); }
     lval_del(v);
     return x;
 }
 lval *builtin_len(lenv *e, lval *v) {
-    LASSERT(v, v->count == 1, "Function 'len' requires exactly one argument!");
-    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'len' requires Q-expr arg!");
+    LASSERT_NUM("len", v, 1);
+    LASSERT_ITYPE("len", v, 0, LVAL_QEXPR);
     lval *x = lval_num(v->cell[0]->count);
     lval_del(v);
     return x;
 }
 lval *builtin_cons(lenv *e, lval *v) {
-    LASSERT(v, v->count == 2, "Function 'cons' requires exactly two arguments!");
-    LASSERT(v, v->cell[0]->type == LVAL_NUM, "Function 'cons' requires arg1 to be a number!");
-    LASSERT(v, v->cell[1]->type == LVAL_QEXPR, "Function 'cons' requires arg2 to be a Q-expr!");
+    LASSERT_NUM("cons", v, 2);
+    LASSERT_ITYPE("cons", v, 0, LVAL_NUM);
+    LASSERT_ITYPE("cons", v, 1, LVAL_QEXPR);
     lval *x = lval_pop(v, 0);
     lval *y = lval_pop(v, 0);
     lval *z = lval_qexpr();
@@ -570,21 +582,21 @@ lval *builtin_cons(lenv *e, lval *v) {
     return z;
 }
 lval *builtin_init(lenv *e, lval *v) {
-    LASSERT(v, v->count == 1, "Function 'init' requires exactly one argument!");
-    LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'init' requires Q-expr arg!");
-    LASSERT(v, v->cell[0]->count > 0, "Function 'init' requires non-empty Q-expr arg!");
+    LASSERT_NUM("init", v, 1);
+    LASSERT_ITYPE("init", v, 0, LVAL_QEXPR);
+    LASSERT_IMIN("init", v, 0, 1);
     lval *x = lval_take(v, 0);
     lval_del(lval_pop(x, x->count - 1));
     return x;
 }
 lval *builtin_def(lenv *e, lval *v) {
-    LASSERT(v, v->count >= 2, "Function 'def' requires at least two arguments!");
+    LASSERT_MIN("def", v, 2);
     lval *syms = v->cell[0];
-    LASSERT(v, syms->type == LVAL_QEXPR, "Function 'def' requires Q-expr arg!");
-    LASSERT(v, syms->count > 0, "Function 'def' requires non-empty Q-expr arg!");
-    LASSERT(v, syms->count == (v->count - 1), "Function 'def' requires exactly len(Q-expr)-1 arguments!");
+    LASSERT_ITYPE("def", v, 0, LVAL_QEXPR);
+    LASSERT_IMIN("def", v, 0, 1);
+    LASSERT(v, syms->count == (v->count - 1), "Function 'def' size mismatch: Q-expr=%d args=%d!", syms->count, v->count - 1);
     for (int i = 0; i < syms->count; i++) {
-        LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function 'def' requires Q-expr with only symbols!");
+        LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function 'def' argument 0 cell %d type must be Symbol! (%s)", i, ltype_name(syms->cell[i]->type));
     }
     for (int i = 0; i < syms->count; i++) {
         lenv_put(e, syms->cell[i], v->cell[i + 1]);
@@ -626,7 +638,7 @@ lval *builtin(lenv *e, lval *v, char *func) {
     else if (!strcmp("init", func)) { return builtin_init(e, v); }
     else if (strstr("+-/*%^ min max", func)) { return builtin_op(e, v, func); }
     lval_del(v);
-    return lval_err(0, "Unknown Builtin Function!");
+    return lval_err(0, "Unknown builtin function '%s'!", func);
 }
 lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->type == LVAL_ERR) return v;
@@ -642,8 +654,9 @@ lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->count == 1) return lval_take(v, 0);
     lval *f = lval_pop(v, 0);
     if (f->type != LVAL_FUN) {
+        lval *err = lval_err(0, "S-expression does not start with a function! (type=%d)", f->type);
         lval_del(f); lval_del(v);
-        return lval_err(0, "S-expression does not start with a function!");
+        return err;
     }
     lval *result = f->fun(e, v);
     lval_del(f);

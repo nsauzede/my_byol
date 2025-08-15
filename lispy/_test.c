@@ -37,7 +37,6 @@ TESTMETHOD(test_def) {
     assert_error(e, "def {a}", LERR_INVALID_OPERAND);
     assert_error(e, "def {a} 1 2", LERR_INVALID_OPERAND);
     assert_error(e, "def {a b} 1", LERR_INVALID_OPERAND);
-    ASSERT(1);
     assert_repr(e, "def {x} 100", "()");
     assert_repr(e, "def {y} 200", "()");
     assert_repr(e, "x", "100");
