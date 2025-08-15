@@ -19,7 +19,7 @@ void assert_repr_(int read_not_eval, lenv *e, char *input, const char *expected)
 void assert_error_lval(lval *v, int expected) {
     ASSERT(!!v);
     EXPECT_EQ(v->type, LVAL_ERR);
-    EXPECT_EQ(lerrors[expected], v->err);
+    EXPECT_EQ(expected, v->errcode);
 }
 void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
     lval *res = read_not_eval ? lread(input) : eval(e,input);
@@ -28,7 +28,29 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
-static lval *lfun1(lenv *e, lval *v) { return 0; }
+TESTMETHOD(test_def) {
+    lenv *e = lenv_new();
+    assert_repr(e, "def", "<function>");
+    assert_error(e, "def 1", LERR_INVALID_OPERAND);
+    assert_error(e, "def 1 2", LERR_INVALID_OPERAND);
+    assert_error(e, "def {}", LERR_INVALID_OPERAND);
+    assert_error(e, "def {a}", LERR_INVALID_OPERAND);
+    assert_error(e, "def {a} 1 2", LERR_INVALID_OPERAND);
+    assert_error(e, "def {a b} 1", LERR_INVALID_OPERAND);
+    ASSERT(1);
+    assert_repr(e, "def {x} 100", "()");
+    assert_repr(e, "def {y} 200", "()");
+    assert_repr(e, "x", "100");
+    assert_repr(e, "y", "200");
+    assert_repr(e, "+ x y", "300");
+    assert_repr(e, "def {a b} 5 6", "()");
+    assert_repr(e, "* a b", "30");
+    assert_repr(e, "def {arglist} {a b x y}", "()");
+    assert_repr(e, "arglist", "{a b x y}");
+    assert_repr(e, "def arglist 1 2 3 4", "()");
+    assert_repr(e, "list a b x y", "{1 2 3 4}");
+    lenv_del(e);
+}
 TESTMETHOD(test_env) {
     lenv *e = lenv_new();
     lval *k = lval_sym("hello");
@@ -53,6 +75,7 @@ TESTMETHOD(test_env) {
     lval_del(k);
     lenv_del(e);
 }
+static lval *lfun1(lenv *e, lval *v) { return 0; }
 TESTMETHOD(test_copy) {
     lval *err = lval_err(0, "err");
     lval *err2 = lval_copy(err);

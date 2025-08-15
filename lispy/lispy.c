@@ -1,6 +1,7 @@
 //#define DUMP_AST
 #include "../mpc/mpc.c"
 /***************************************************************/
+#define TODO() do{printf("%s: TODO\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
 const char *lispy_grammar = "\
         number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
@@ -133,8 +134,11 @@ lval *lval_copy(lval *v) {
             break;
         case LVAL_SEXPR:
         case LVAL_QEXPR:
-            printf("%s: TODO\n", __func__);
-            exit(1);
+            x->count = v->count;
+            x->cell = malloc(sizeof(lval*) * x->count);
+            for (int i = 0; i < x->count; i++) {
+                x->cell[i] = lval_copy(v->cell[i]);
+            }
             break;
     }
     return x;
@@ -295,8 +299,7 @@ lval *lval_read(mpc_ast_t *a) {
     lval *ret = NULL;
     if (!strcmp(a->tag, ">")||strstr(a->tag, "sexpr")) {
         ret = lval_sexpr();
-    }
-    if (strstr(a->tag, "qexpr")) {
+    } else if (strstr(a->tag, "qexpr")) {
         ret = lval_qexpr();
     }
     for (int i = 0; i < a->children_num; i++) {
@@ -476,6 +479,36 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
 }
 #define LASSERT(v, cond, err) \
     do {if (!(cond)){lval_del(v); return lval_err(LERR_INVALID_OPERAND, err);}} while(0)
+void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
+    lval *k = lval_sym(name);
+    lval *v = lval_fun(fun);
+    lenv_put(e, k, v);
+    lval_del(k); lval_del(v);
+}
+lval *builtin_add_(lenv *e, lval *v) {
+    return builtin_op(e, v, "+");
+}
+lval *builtin_sub_(lenv *e, lval *v) {
+    return builtin_op(e, v, "-");
+}
+lval *builtin_mul_(lenv *e, lval *v) {
+    return builtin_op(e, v, "*");
+}
+lval *builtin_div_(lenv *e, lval *v) {
+    return builtin_op(e, v, "/");
+}
+lval *builtin_mod_(lenv *e, lval *v) {
+    return builtin_op(e, v, "%");
+}
+lval *builtin_pow_(lenv *e, lval *v) {
+    return builtin_op(e, v, "^");
+}
+lval *builtin_min_(lenv *e, lval *v) {
+    return builtin_op(e, v, "min");
+}
+lval *builtin_max_(lenv *e, lval *v) {
+    return builtin_op(e, v, "max");
+}
 lval *builtin_list(lenv *e, lval *v) {
     v->type = LVAL_QEXPR;
     return v;
@@ -544,35 +577,20 @@ lval *builtin_init(lenv *e, lval *v) {
     lval_del(lval_pop(x, x->count - 1));
     return x;
 }
-void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
-    lval *k = lval_sym(name);
-    lval *v = lval_fun(fun);
-    lenv_put(e, k, v);
-    lval_del(k); lval_del(v);
-}
-lval *builtin_add_(lenv *e, lval *v) {
-    return builtin_op(e, v, "+");
-}
-lval *builtin_sub_(lenv *e, lval *v) {
-    return builtin_op(e, v, "-");
-}
-lval *builtin_mul_(lenv *e, lval *v) {
-    return builtin_op(e, v, "*");
-}
-lval *builtin_div_(lenv *e, lval *v) {
-    return builtin_op(e, v, "/");
-}
-lval *builtin_mod_(lenv *e, lval *v) {
-    return builtin_op(e, v, "%");
-}
-lval *builtin_pow_(lenv *e, lval *v) {
-    return builtin_op(e, v, "^");
-}
-lval *builtin_min_(lenv *e, lval *v) {
-    return builtin_op(e, v, "min");
-}
-lval *builtin_max_(lenv *e, lval *v) {
-    return builtin_op(e, v, "max");
+lval *builtin_def(lenv *e, lval *v) {
+    LASSERT(v, v->count >= 2, "Function 'def' requires at least two arguments!");
+    lval *syms = v->cell[0];
+    LASSERT(v, syms->type == LVAL_QEXPR, "Function 'def' requires Q-expr arg!");
+    LASSERT(v, syms->count > 0, "Function 'def' requires non-empty Q-expr arg!");
+    LASSERT(v, syms->count == (v->count - 1), "Function 'def' requires exactly len(Q-expr)-1 arguments!");
+    for (int i = 0; i < syms->count; i++) {
+        LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function 'def' requires Q-expr with only symbols!");
+    }
+    for (int i = 0; i < syms->count; i++) {
+        lenv_put(e, syms->cell[i], v->cell[i + 1]);
+    }
+    lval_del(v);
+    return lval_sexpr();
 }
 void lenv_add_builtins(lenv *e) {
     if (e->count > 0) {
@@ -595,6 +613,7 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "len", builtin_len);
     lenv_add_builtin(e, "cons", builtin_cons);
     lenv_add_builtin(e, "init", builtin_init);
+    lenv_add_builtin(e, "def", builtin_def);
 }
 lval *builtin(lenv *e, lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(e, v); }
