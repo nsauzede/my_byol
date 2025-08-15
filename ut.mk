@@ -17,5 +17,6 @@ UT_XTHROW:=1
 #UT_CUSTOM_ALL+=<custom 'all' additional targets>
 #UT_CUSTOM_DEPS+=<custom additional dependencies>
 
-CFLAGS:=-std=c99 -D_POSIX_C_SOURCE=199309L
+#CFLAGS:=-std=c99 -D_POSIX_C_SOURCE=199309L
+CFLAGS:=-std=c99 -D_POSIX_C_SOURCE=200809L
 LDFLAGS:=-lm

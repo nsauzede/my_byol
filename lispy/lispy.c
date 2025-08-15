@@ -2,6 +2,7 @@
 #include "../mpc/mpc.c"
 /***************************************************************/
 #define TODO() do{printf("%s: TODO\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
+#define FIXME() do{printf("%s: FIXME\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
 const char *lispy_grammar = "\
         number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
@@ -47,15 +48,30 @@ const char *lerrors[] = {
     [LERR_UNBOUND_SYM] = "Unbound Symbol!",
 };
 lval *lval_void(void) { return calloc(1,sizeof(lval)); }
-lval *lval_err(int errcode, const char *err) {
+lval *lval_err(int errcode, const char *fmt, ...) {
     if (errcode < LERR_FIRST || errcode >= LERR_LAST) {
         printf("%s: invalid errcode=%d\n", __func__, errcode);
         exit(1);
     }
-    if (!err) err = lerrors[errcode];
+    char *err = 0;
+    if (!fmt) {
+        err = strdup(lerrors[errcode]);
+    } else {
+        va_list args;
+        va_start(args, fmt);
+        int len = vsnprintf(0, 0, fmt, args);
+        if (len <= 0) {
+            printf("%s: vsnprintf returned %d\n", __func__, len);
+            exit(1);
+        }
+        va_end(args);
+        err = malloc(++len);
+        va_start(args, fmt);
+        vsnprintf(err, len, fmt, args);
+        va_end(args);
+    }
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_ERR,.err=malloc(strlen(err) + 1),.errcode=errcode};
-    strcpy(ret->err, err);
+    *ret = (lval){LVAL_ERR,.err=err,.errcode=errcode};
     return ret;
 }
 lval *lval_errcode(int errcode) {
@@ -175,7 +191,7 @@ lval *lenv_get(lenv *e, lval *k) {
     if (pitem) {
         return lval_copy(*pitem);
     }
-    return lval_errcode(LERR_UNBOUND_SYM);
+    return lval_err(LERR_UNBOUND_SYM, "Unbound Symbol '%s'!", k->sym);
 }
 void lenv_put(lenv *e, lval *k, lval *v) {
     lval **pitem = lenv_find(e, k);
@@ -477,8 +493,8 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
     lval_del(v);
     return x;
 }
-#define LASSERT(v, cond, err) \
-    do {if (!(cond)){lval_del(v); return lval_err(LERR_INVALID_OPERAND, err);}} while(0)
+#define LASSERT(v, cond, err, ...) \
+    do {if (!(cond)){lval *err_ = lval_err(LERR_INVALID_OPERAND, err, ##__VA_ARGS__);lval_del(v); return err_;}} while(0)
 void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
     lval *k = lval_sym(name);
     lval *v = lval_fun(fun);
@@ -514,7 +530,7 @@ lval *builtin_list(lenv *e, lval *v) {
     return v;
 }
 lval *builtin_eval(lenv *e, lval *v) {
-    LASSERT(v, v->count == 1, "Function 'eval' requires exactly one argument!");
+    LASSERT(v, v->count == 1, "Function 'eval' requires exactly one argument! (count=%d)", v->count);
     LASSERT(v, v->cell[0]->type == LVAL_QEXPR, "Function 'eval' requires Q-expr arg!");
     lval *x = lval_take(v, 0);
     x->type = LVAL_SEXPR;
@@ -577,10 +593,16 @@ lval *builtin_init(lenv *e, lval *v) {
     lval_del(lval_pop(x, x->count - 1));
     return x;
 }
+const char *ltype_name(int t) {
+    switch (t) {
+        case LVAL_NUM:return "Number";
+        default: return "Unknown?";
+    }
+}
 lval *builtin_def(lenv *e, lval *v) {
     LASSERT(v, v->count >= 2, "Function 'def' requires at least two arguments!");
     lval *syms = v->cell[0];
-    LASSERT(v, syms->type == LVAL_QEXPR, "Function 'def' requires Q-expr arg!");
+    LASSERT(v, syms->type == LVAL_QEXPR, "Function 'def' requires Q-expr arg! (%s)", ltype_name(syms->type));
     LASSERT(v, syms->count > 0, "Function 'def' requires non-empty Q-expr arg!");
     LASSERT(v, syms->count == (v->count - 1), "Function 'def' requires exactly len(Q-expr)-1 arguments!");
     for (int i = 0; i < syms->count; i++) {
@@ -626,7 +648,7 @@ lval *builtin(lenv *e, lval *v, char *func) {
     else if (!strcmp("init", func)) { return builtin_init(e, v); }
     else if (strstr("+-/*%^ min max", func)) { return builtin_op(e, v, func); }
     lval_del(v);
-    return lval_err(0, "Unknown Builtin Function!");
+    return lval_err(0, "Unknown builtin function '%s'!", func);
 }
 lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->type == LVAL_ERR) return v;
@@ -642,8 +664,9 @@ lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->count == 1) return lval_take(v, 0);
     lval *f = lval_pop(v, 0);
     if (f->type != LVAL_FUN) {
+        lval *err = lval_err(0, "S-expression does not start with a function! (type=%d)", f->type);
         lval_del(f); lval_del(v);
-        return lval_err(0, "S-expression does not start with a function!");
+        return err;
     }
     lval *result = f->fun(e, v);
     lval_del(f);
