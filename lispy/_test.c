@@ -30,7 +30,7 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
 TESTMETHOD(test_def) {
     lenv *e = lenv_new();
-    assert_repr(e, "def", "<function>");
+    assert_repr(e, "def", "<function 'def'>");
     assert_error(e, "def 1", LERR_INVALID_OPERAND);
     assert_error(e, "def 1 2", LERR_INVALID_OPERAND);
     assert_error(e, "def {}", LERR_INVALID_OPERAND);
@@ -81,7 +81,7 @@ TESTMETHOD(test_copy) {
     EXPECT_EQ(err->err, err2->err);
     lval_del(err2);
     lval_del(err);
-    lval *fun = lval_fun(&lfun1);
+    lval *fun = lval_fun(&lfun1, "lfun1");
     lval *fun2 = lval_copy(fun);
     EXPECT_EQ((void*)fun->fun, fun2->fun);
     lval_del(fun2);
@@ -94,9 +94,9 @@ TESTMETHOD(test_copy) {
 }
 TESTMETHOD(test_fun) {
     lenv *e = lenv_new();
-    assert_repr(e, "+", "<function>");
+    assert_repr(e, "+", "<function '+'>");
     assert_repr(e, "eval (head {5 10 11 15})", "5");
-    assert_repr(e, "eval (head {+ - + - * /})", "<function>");
+    assert_repr(e, "eval (head {+ - + - * /})", "<function '+'>");
     assert_repr(e, "(eval (head {+ - + - * /})) 10 20", "30");
     assert_error(e, "hello", LERR_UNBOUND_SYM);
     lenv_del(e);

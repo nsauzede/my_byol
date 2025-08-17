@@ -1,8 +1,9 @@
 #include "../mpc/mpc.c"
 /***************************************************************/
 #include <math.h>
-#define TODO() do{printf("%s: TODO\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
-#define FIXME() do{printf("%s: FIXME\n", __func__);__asm__ volatile("int $3");exit(66);}while(0)
+#define BRK() do{__asm__ volatile("int $3");}while(0)
+#define TODO() do{printf("%s: TODO\n", __func__);BRK();exit(66);}while(0)
+#define FIXME() do{printf("%s: FIXME\n", __func__);BRK();exit(66);}while(0)
 #define LASSERT(v, cond, fmt, ...) do {if (!(cond)){lval *err = lval_err(LERR_INVALID_OPERAND, fmt, ##__VA_ARGS__);lval_del(v); return err;}} while(0)
 #define LASSERT_NUM(fun,v,n) LASSERT(v,v->count==n,"Function '%s' requires exactly %d argument%s! (%d)",fun,n,n>1?"s":"",v->count)
 #define LASSERT_MIN(fun,v,n) LASSERT(v,v->count>=n,"Function '%s' requires at least %d argument%s! (%d)",fun,n,n>1?"s":"",v->count)
@@ -104,9 +105,9 @@ lval *lval_sym(char *sym) {
     strcpy(ret->sym, sym);
     return ret;
 }
-lval *lval_fun(lbuiltin fun) {
+lval *lval_fun(lbuiltin fun, char *sym) {
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_FUN,.fun=fun};
+    *ret = (lval){LVAL_FUN,.fun=fun,.sym=strdup(sym)};
     return ret;
 }
 lval *lval_sexpr(void) {
@@ -128,9 +129,9 @@ void lval_del(lval *v) {
     if (!v)return;
     switch (v->type) {
         case LVAL_NUM:
-        case LVAL_FUN:
         case LVAL_FLT:
             break;
+        case LVAL_FUN:
         case LVAL_SYM:
             free(v->sym);
             break;
@@ -150,20 +151,14 @@ void lval_del(lval *v) {
 lval *lval_copy(lval *v) {
     lval *x = malloc(sizeof(lval));
     x->type = v->type;
-    int len;
     switch (v->type) {
-        case LVAL_ERR:
-            len = strlen(v->err) + 1;
-            x->err = malloc(len);
-            memcpy(x->err, v->err, len);
-            break;
-        case LVAL_FUN:x->fun = v->fun;break;
+        case LVAL_ERR:x->err = strdup(v->err);break;
         case LVAL_NUM:x->num = v->num;break;
+        case LVAL_FUN:
+            x->fun = v->fun;
+            /* fall through LVAL_SYM */
         case LVAL_SYM:
-            len = strlen(v->sym) + 1;
-            x->sym = malloc(len);
-            memcpy(x->sym, v->sym, len);
-            break;
+            x->sym = strdup(v->sym);break;
         case LVAL_SEXPR:
         case LVAL_QEXPR:
             x->count = v->count;
@@ -263,7 +258,7 @@ void lval_repr_(char **s, int *slen, lval *v) {
     if (!v) return;
     switch (v->type) {
         case LVAL_NUM:sappendf(s, slen, "%li", v->num);break;
-        case LVAL_FUN:sappendf(s, slen, "<function>");break;
+        case LVAL_FUN:sappendf(s, slen, "<function '%s'>", v->sym);break;
         case LVAL_FLT:sappendf(s, slen, "%.15g", v->flt);break;
         case LVAL_SYM:sappendf(s, slen, "%s", v->sym);break;
         case LVAL_ERR:sappendf(s, slen, "%s", v->err);break;
@@ -497,7 +492,7 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
 }
 void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
     lval *k = lval_sym(name);
-    lval *v = lval_fun(fun);
+    lval *v = lval_fun(fun, name);
     lenv_put(e, k, v);
     lval_del(k); lval_del(v);
 }
