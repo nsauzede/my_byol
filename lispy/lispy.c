@@ -170,55 +170,6 @@ lval *lval_copy(lval *v) {
     }
     return x;
 }
-lenv *lenv_new_no_builtins(void) {
-    lenv *e = calloc(1, sizeof(lenv));
-    return e;
-}
-void lenv_add_builtins(lenv *e);
-lenv *lenv_new(void) {
-    lenv *e = lenv_new_no_builtins();
-    lenv_add_builtins(e);
-    return e;
-}
-void lenv_del(lenv *e) {
-    for (int i = 0; i < e->count; i++) {
-        free(e->syms[i]);
-        lval_del(e->vals[i]);
-    }
-    free(e->syms);
-    free(e->vals);
-    free(e);
-}
-lval **lenv_find(lenv *e, lval *k) {
-    for (int i = 0; i < e->count; i++) {
-        if (!strcmp(e->syms[i], k->sym)) {
-            return &e->vals[i];
-        }
-    }
-    return 0;
-}
-lval *lenv_get(lenv *e, lval *k) {
-    lval **pitem = lenv_find(e, k);
-    if (pitem) {
-        return lval_copy(*pitem);
-    }
-    return lval_err(LERR_UNBOUND_SYM, "Unbound Symbol '%s'!", k->sym);
-}
-void lenv_put(lenv *e, lval *k, lval *v) {
-    lval **pitem = lenv_find(e, k);
-    if (pitem) {
-        lval_del(*pitem);
-        *pitem = lval_copy(v);
-        return;
-    }
-    int len = sizeof(lval*) * (e->count + 1);
-    e->syms = realloc(e->syms, len);
-    e->vals = realloc(e->vals, len);
-    e->syms[e->count] = malloc(strlen(k->sym)+1);
-    strcpy(e->syms[e->count], k->sym);
-    e->vals[e->count] = lval_copy(v);
-    e->count++;
-}
 int sappendf(char **p, int *plen, const char *fmt, ...) {
     if (!p || !plen)return -1;
     va_list args;
@@ -282,6 +233,62 @@ void lval_print(lval *v) {
 void lval_println(lval *v) {
     lval_print(v);
     puts("");
+}
+lenv *lenv_new_no_builtins(void) {
+    lenv *e = calloc(1, sizeof(lenv));
+    return e;
+}
+void lenv_add_builtins(lenv *e);
+lenv *lenv_new(void) {
+    lenv *e = lenv_new_no_builtins();
+    lenv_add_builtins(e);
+    return e;
+}
+void lenv_del(lenv *e) {
+    for (int i = 0; i < e->count; i++) {
+        free(e->syms[i]);
+        lval_del(e->vals[i]);
+    }
+    free(e->syms);
+    free(e->vals);
+    free(e);
+}
+lval **lenv_find(lenv *e, lval *k) {
+    for (int i = 0; i < e->count; i++) {
+        if (!strcmp(e->syms[i], k->sym)) {
+            return &e->vals[i];
+        }
+    }
+    return 0;
+}
+void lenv_print(lenv *e) {
+    for (int i = 0; i < e->count; i++) {
+        char *repr = lval_repr(e->vals[i]);
+        printf("%s=%s\n", e->syms[i], repr);
+        free(repr);
+    }
+}
+lval *lenv_get(lenv *e, lval *k) {
+    lval **pitem = lenv_find(e, k);
+    if (pitem) {
+        return lval_copy(*pitem);
+    }
+    return lval_err(LERR_UNBOUND_SYM, "Unbound Symbol '%s'!", k->sym);
+}
+void lenv_put(lenv *e, lval *k, lval *v) {
+    lval **pitem = lenv_find(e, k);
+    if (pitem) {
+        lval_del(*pitem);
+        *pitem = lval_copy(v);
+        return;
+    }
+    int len = sizeof(lval*) * (e->count + 1);
+    e->syms = realloc(e->syms, len);
+    e->vals = realloc(e->vals, len);
+    e->syms[e->count] = malloc(strlen(k->sym)+1);
+    strcpy(e->syms[e->count], k->sym);
+    e->vals[e->count] = lval_copy(v);
+    e->count++;
 }
 void ast_print(int level, mpc_ast_t *a) {
     for (int i = 0; i < level; i++) {
@@ -374,7 +381,7 @@ lval *lval_pop(lval *v, int i) {
     memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count - i - 1));
     v->count--;
     if (v->count == 0) {
-        free(v->cell);  // Valgrind doesn't like zero-realloc ?
+        free(v->cell);  // Valgrind doesn't like zero-realloc
         v->cell = NULL;
     } else {
         v->cell = realloc(v->cell, sizeof(lval*) * v->count);
@@ -594,8 +601,27 @@ lval *builtin_def(lenv *e, lval *v) {
         LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function 'def' argument 0 cell %d type must be Symbol! (%s)", i, ltype_name(syms->cell[i]->type));
     }
     for (int i = 0; i < syms->count; i++) {
+        lval **pitem = lenv_find(e, syms->cell[i]);
+        if (pitem && (*pitem)->type == LVAL_FUN) {
+            lval *err = lval_err(0, "Can't builtin symbol symbol '%s'!",syms->cell[i]->sym);
+            lval_del(v);
+            return err;
+        }
         lenv_put(e, syms->cell[i], v->cell[i + 1]);
     }
+    lval_del(v);
+    return lval_sexpr();
+}
+lval *builtin_env(lenv *e, lval *v) {
+    LASSERT_NUM("env", v, 1);
+    lenv_print(e);
+    lval_del(v);
+    return lval_sexpr();
+}
+int g_exit = 0;
+lval *builtin_exit(lenv *e, lval *v) {
+    LASSERT_NUM("exit", v, 1);
+    g_exit = 1;
     lval_del(v);
     return lval_sexpr();
 }
@@ -621,6 +647,8 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "cons", builtin_cons);
     lenv_add_builtin(e, "init", builtin_init);
     lenv_add_builtin(e, "def", builtin_def);
+    lenv_add_builtin(e, "env", builtin_env);
+    lenv_add_builtin(e, "exit", builtin_exit);
 }
 lval *builtin(lenv *e, lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(e, v); }
@@ -685,7 +713,8 @@ char *eval_print(lenv *e, char *s) {
 int main() {
     char buf[512];
     lenv *e = lenv_new();
-    while (1) {
+    g_exit = 0;
+    while (!g_exit) {
         printf("lispy> ");
         if (!fgets(buf, sizeof(buf), stdin)) break;
         char *endl = strchr(buf, '\n');
