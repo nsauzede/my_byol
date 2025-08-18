@@ -21,12 +21,19 @@ const char *lispy_grammar = "\
 typedef struct lval lval;
 typedef struct lenv lenv;
 typedef lval *(*lbuiltin)(lenv *, lval *);
+typedef enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
+    LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT } lval_type_t;
+typedef enum {
+    LERR_UNSPECIFIED, LERR_FIRST = LERR_UNSPECIFIED,
+        LERR_PARSE_ERROR, LERR_BAD_NUM, LERR_BAD_FLT,
+        LERR_INVALID_OPERAND, LERR_DIV_ZERO, LERR_UNBOUND_SYM,
+    LERR_LAST} lerr_t;
 struct lval {
-    int type;
+    lval_type_t type;
     long num;
     double flt;
     char *err;
-    int errcode;
+    lerr_t errcode;
     char *sym;
     lbuiltin fun;
     int count;
@@ -37,12 +44,6 @@ struct lenv {
     char **syms;
     lval **vals;
 };
-enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
-       LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT };
-enum { LERR_FIRST, LERR_UNSPECIFIED = LERR_FIRST,
-        LERR_PARSE_ERROR, LERR_BAD_NUM, LERR_BAD_FLT,
-        LERR_INVALID_OPERAND, LERR_DIV_ZERO, LERR_UNBOUND_SYM,
-    LERR_LAST} lerrcodes;
 const char *lerrors[] = {
     [LERR_UNSPECIFIED] = "(unspecified error)",
     [LERR_PARSE_ERROR] = "Parse Error!",
@@ -154,6 +155,7 @@ lval *lval_copy(lval *v) {
     switch (v->type) {
         case LVAL_ERR:x->err = strdup(v->err);break;
         case LVAL_NUM:x->num = v->num;break;
+        case LVAL_FLT:x->flt = v->flt;break;
         case LVAL_FUN:
             x->fun = v->fun;
             /* fall through LVAL_SYM */

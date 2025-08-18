@@ -18,7 +18,7 @@ void assert_repr_(int read_not_eval, lenv *e, char *input, const char *expected)
 #define assert_repr_noeval(e,input,expected) assert_repr_(1,e,input,expected)
 void assert_error_lval(lval *v, int expected) {
     ASSERT(!!v);
-    EXPECT_EQ(v->type, LVAL_ERR);
+    EXPECT_EQ(LVAL_ERR, v->type);
     EXPECT_EQ(expected, v->errcode);
 }
 void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
