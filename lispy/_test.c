@@ -29,9 +29,9 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
 /*
-def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
-fun {unpack f xs} {eval (join (list f) xs)}
-fun {pack f & xs} {f xs}
+def {fun_} (\ {args body} {def (head args) (\ (tail args) body)})
+fun_ {unpack f xs} {eval (join (list f) xs)}
+fun_ {pack f & xs} {f xs}
 def {uncurry} pack
 def {curry} unpack
 curry + {5 6 7}
@@ -39,9 +39,9 @@ uncurry head 5 6 7
 */
 TESTMETHOD(test_currying) {
     lenv *e = lenv_new();
-    assert_repr(e, "def {fun} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
-    assert_repr(e, "fun {unpack f xs} {eval (join (list f) xs)}", "()");
-    assert_repr(e, "fun {pack f & xs} {f xs}", "()");
+    assert_repr(e, "def {fun_} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
+    assert_repr(e, "fun_ {unpack f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "fun_ {pack f & xs} {f xs}", "()");
     assert_repr(e, "def {uncurry} pack", "()");
     assert_repr(e, "def {curry} unpack", "()");
     assert_repr(e, "curry + {5 6 7}", "18");
@@ -60,24 +60,26 @@ TESTMETHOD(test_currying) {
 }
 TESTMETHOD(test_fun) {
     lenv *e = lenv_new();
-    assert_repr(e, "def {fun} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
-    assert_repr(e, "fun {add-together x y} {+ x y}", "()");
+    assert_repr(e, "def {fun_} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
+    assert_repr(e, "fun_ {add-together x y} {+ x y}", "()");
     assert_repr(e, "add-together 1 2", "3");
     assert_error(e, "add-together 1 2 3", LERR_INVALID_OPERAND);
 
-    assert_repr(e, "fun {unpack f xs} {eval (join (list f) xs)}", "()");
-    assert_repr(e, "fun {first x} {eval (head x)}", "()");
+    assert_repr(e, "fun_ {unpack f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "fun_ {first x} {eval (head x)}", "()");
     assert_repr(e, "first {10 11 12}", "10");
-    assert_repr(e, "fun {second x} {eval (head (tail x))}", "()");
+    assert_repr(e, "fun_ {second x} {eval (head (tail x))}", "()");
     assert_repr(e, "second {10 11 12}", "11");
     assert_repr(e, "- 5 3", "2");
     assert_repr(e, "- 3 5", "-2");
-    assert_repr(e, "fun {swap f x y} {f y x}", "()");
+    assert_repr(e, "fun_ {swap f x y} {f y x}", "()");
     assert_repr(e, "swap - 5 3", "-2");
-    assert_repr(e, "fun {double x} {* 2 x}", "()");
+    assert_repr(e, "fun_ {double x} {* 2 x}", "()");
     assert_repr(e, "double 5", "10");
-    assert_repr(e, "fun {compute x y} {double (swap - x y)}", "()");
+    assert_repr(e, "fun_ {compute x y} {double (swap - x y)}", "()");
     assert_repr(e, "compute 10 5", "-10");
+    assert_repr(e, "fun {third x} {eval (head (tail (tail x)))}", "()");
+    assert_repr(e, "third {10 11 12}", "12");
     lenv_del(e);
 }
 TESTMETHOD(test_lambda) {

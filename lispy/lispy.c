@@ -21,7 +21,8 @@ const char *lispy_grammar = "\
 typedef struct lval lval;
 typedef struct lenv lenv;
 typedef lval *(*lbuiltin)(lenv *, lval *);
-typedef enum { LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
+typedef enum {
+    LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
     LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT } lval_type_t;
 typedef enum {
     LERR_UNSPECIFIED, LERR_FIRST = LERR_UNSPECIFIED,
@@ -704,6 +705,29 @@ lval *builtin_lambda(lenv *e, lval *v) {
     lval_del(v);
     return lval_lambda(formals, body);
 }
+lval *builtin_fun(lenv *e, lval *v) {
+    LASSERT_NUM("fun", v, 2);
+    LASSERT_ITYPE("fun", v, 0, LVAL_QEXPR);
+    LASSERT_ITYPE("fun", v, 1, LVAL_QEXPR);
+    LASSERT_IMIN("fun", v, 0, 2);
+    lval *syms = v->cell[0];
+    for (int i = 0; i < syms->count; i++) {
+        LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function '_fun' argument 0 cell %d type must be Symbol! (%s)", i, ltype_name(syms->cell[i]->type));
+    }
+    lval *formals = lval_pop(v, 0);
+    lval *fname = lval_pop(formals, 0);
+    printf("%s: fname=%s\n", __func__, fname->sym);
+    for (int i = 0; i < formals->count; i++) {
+        printf("%s:  formal %d: %s\n", __func__, i, formals->cell[i]->sym);
+    }
+    lval *body = lval_pop(v, 0);
+    lval_del(v);
+    lval *lamb = lval_lambda(formals, body);
+    lenv_put(e, fname, lamb);
+    lval_del(lamb);
+    lval_del(fname);
+    return lval_sexpr();
+}
 void lenv_add_builtins(lenv *e) {
     if (e->count > 0) {
         printf("%s: There are already %d items in environment\n", __func__, e->count);
@@ -730,6 +754,7 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "env", builtin_env);
     lenv_add_builtin(e, "exit", builtin_exit);
     lenv_add_builtin(e, "\\", builtin_lambda);
+    lenv_add_builtin(e, "fun", builtin_fun);
 }
 lval *builtin(lenv *e, lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(e, v); }
