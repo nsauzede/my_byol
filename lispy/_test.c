@@ -28,6 +28,14 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
+TESTMETHOD(test_currying) {
+    lenv *e = lenv_new();
+    assert_repr(e, "def {fun} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
+    assert_repr(e, "fun {unpack f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "def {curry} unpack", "()");
+    assert_repr(e, "curry + {5 6 7}", "18");
+    lenv_del(e);
+}
 TESTMETHOD(test_fun) {
     lenv *e = lenv_new();
     assert_repr(e, "def {fun} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
