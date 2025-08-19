@@ -30,14 +30,12 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
 TESTMETHOD(test_lambda) {
     lenv *e = lenv_new();
-    assert_repr(e, "\\ {x y} {+ x y}", "<lambda (\\ {x y} {+ x y})>");
+    assert_repr(e, "\\ {x y} {+ x y}", "(\\ {x y} {+ x y})");
     assert_repr(e, "def {add-mul} (\\ {x y} {+ x (* x y)})", "()");
     assert_repr(e, "add-mul 10 20", "210");
-#if 0
     assert_repr(e, "add-mul 10", "(\\ {y} {+ x (* x y)})");
     assert_repr(e, "def {add-mul-ten} (add-mul 10)", "()");
     assert_repr(e, "add-mul-ten 50", "510");
-#endif
     lenv_del(e);
 }
 TESTMETHOD(test_def) {
@@ -49,7 +47,7 @@ TESTMETHOD(test_def) {
     assert_error(e, "def {a}", LERR_INVALID_OPERAND);
     assert_error(e, "def {a} 1 2", LERR_INVALID_OPERAND);
     assert_error(e, "def {a b} 1", LERR_INVALID_OPERAND);
-    assert_error(e, "def {def} 1", 0); // builtin syms can't be overriden
+    assert_error(e, "def {def} 1", LERR_INVALID_OPERAND); // builtin syms can't be overriden
     assert_repr(e, "def {x} 100", "()");
     assert_repr(e, "def {y} 200", "()");
     assert_repr(e, "x", "100");

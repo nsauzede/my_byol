@@ -1,7 +1,7 @@
 #include "../mpc/mpc.c"
 /***************************************************************/
 #include <math.h>
-#define BRK() do{__asm__ volatile("int $3");exit(1);}while(0)
+#define BRK() do{__asm__ volatile("int $3");}while(0)
 #define TODO() do{printf("%s: TODO\n", __func__);BRK();exit(66);}while(0)
 #define FIXME() do{printf("%s: FIXME\n", __func__);BRK();exit(66);}while(0)
 #define LASSERT(v, cond, fmt, ...) do {if (!(cond)){lval *err = lval_err(LERR_INVALID_OPERAND, fmt, ##__VA_ARGS__);lval_del(v); return err;}} while(0)
@@ -154,8 +154,7 @@ void lval_del(lval *v) {
                 lval_del(v->formals);
                 lval_del(v->body);
                 break;
-            }
-            /* fall-through to LVAL_SYM */
+            } /* fall-through to LVAL_SYM */
         case LVAL_SYM:
             free(v->sym);
             break;
@@ -186,8 +185,7 @@ lval *lval_copy(lval *v) {
                 x->formals = lval_copy(v->formals);
                 x->body = lval_copy(v->body);
                 break;
-            }
-            /* fall through LVAL_SYM */
+            } /* fall through LVAL_SYM */
         case LVAL_SYM:
             x->sym = strdup(v->sym);break;
         case LVAL_SEXPR:
@@ -244,11 +242,11 @@ void lval_repr_(char **s, int *slen, lval *v) {
             if (v->builtin) {
                 sappendf(s, slen, "<function '%s'>", v->sym);
             } else {
-                sappendf(s, slen, "<lambda (\\ ");
+                sappendf(s, slen, "(\\ ");
                 lval_repr_(s, slen, v->formals);
                 sappendf(s, slen, " ");
                 lval_repr_(s, slen, v->body);
-                sappendf(s, slen, ")>");
+                sappendf(s, slen, ")");
             }
             break;
         case LVAL_FLT:sappendf(s, slen, "%.15g", v->flt);break;
@@ -440,8 +438,8 @@ lval *lval_pop(lval *v, int i) {
     lval *x = v->cell[i];
     memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count - i - 1));
     v->count--;
-    if (v->count == 0) {
-        free(v->cell);  // Valgrind doesn't like zero-realloc
+    if (v->count == 0) { // Valgrind doesn't like zero-realloc
+        free(v->cell);
         v->cell = NULL;
     } else {
         v->cell = realloc(v->cell, sizeof(lval*) * v->count);
@@ -651,29 +649,6 @@ lval *builtin_init(lenv *e, lval *v) {
     lval_del(lval_pop(x, x->count - 1));
     return x;
 }
-#if 0
-lval *builtin_def0(lenv *e, lval *v) {
-    LASSERT_MIN("def", v, 2);
-    lval *syms = v->cell[0];
-    LASSERT_ITYPE("def", v, 0, LVAL_QEXPR);
-    LASSERT_IMIN("def", v, 0, 1);
-    LASSERT(v, syms->count == (v->count - 1), "Function 'def' size mismatch: Q-expr=%d args=%d!", syms->count, v->count - 1);
-    for (int i = 0; i < syms->count; i++) {
-        LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function 'def' argument 0 cell %d type must be Symbol! (%s)", i, ltype_name(syms->cell[i]->type));
-    }
-    for (int i = 0; i < syms->count; i++) {
-        lval **pitem = lenv_find(e, syms->cell[i]);
-        if (pitem && (*pitem)->type == LVAL_FUN) {
-            lval *err = lval_err(0, "Can't override builtin symbol '%s'!",syms->cell[i]->sym);
-            lval_del(v);
-            return err;
-        }
-        lenv_put(e, syms->cell[i], v->cell[i + 1]);
-    }
-    lval_del(v);
-    return lval_sexpr();
-}
-#endif
 lval *builtin_var(lenv *e, lval *v, char *func) {
     LASSERT_MIN(func, v, 2);
     lval *syms = v->cell[0];
@@ -687,7 +662,7 @@ lval *builtin_var(lenv *e, lval *v, char *func) {
         if (!strcmp(func, "def")) {
             lval **pitem = lenv_find(e, syms->cell[i]);
             if (pitem && (*pitem)->type == LVAL_FUN) {
-                lval *err = lval_err(0, "Can't override builtin symbol '%s'!",syms->cell[i]->sym);
+                lval *err = lval_err(LERR_INVALID_OPERAND, "Can't override builtin symbol '%s'!",syms->cell[i]->sym);
                 lval_del(v);
                 return err;
             }
@@ -769,18 +744,29 @@ lval *builtin(lenv *e, lval *v, char *func) {
     else if (!strcmp("init", func)) { return builtin_init(e, v); }
     else if (strstr("+-/*%^ min max", func)) { return builtin_op(e, v, func); }
     lval_del(v);
-    return lval_err(0, "Unknown builtin function '%s'!", func);
+    return lval_err(LERR_INVALID_OPERAND, "Unknown builtin function '%s'!", func);
 }
 lval *lval_call(lenv *e, lval *f, lval *v) {
-    if (f->builtin) {
-        return f->builtin(e, v);
-    }
-    for (int i = 0; i < v->count; i++) {
-        lenv_put(f->env, f->formals->cell[i], v->cell[i]);
+    if (f->builtin) { return f->builtin(e, v); }
+    int given = v->count;
+    int total = f->formals->count;
+    while (v->count) {
+        if (!f->formals->count) {
+            lval_del(v);
+            return lval_err(LERR_INVALID_OPERAND, "Function passed many arguments. Got %d, expected %d.", given, total);
+        }
+        lval *sym = lval_pop(f->formals, 0);
+        lval *val = lval_pop(v, 0);
+        lenv_put(f->env, sym, val);
+        lval_del(sym); lval_del(val);
     }
     lval_del(v);
-    f->env->par = e;
-    return builtin_eval(f->env, lval_add(lval_sexpr(), lval_copy(f->body)));
+    if (!f->formals->count) { /* All formals were bound: evaluate */
+        f->env->par = e;
+        return builtin_eval(f->env, lval_add(lval_sexpr(), lval_copy(f->body)));
+    } else { /* Return partially evaluated function */
+        return lval_copy(f);
+    }
 }
 lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->type == LVAL_ERR) return v;
@@ -796,7 +782,7 @@ lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->count == 1) return lval_take(v, 0);
     lval *f = lval_pop(v, 0);
     if (f->type != LVAL_FUN) {
-        lval *err = lval_err(0, "S-expression does not start with a function! (type=%d)", f->type);
+        lval *err = lval_err(LERR_INVALID_OPERAND, "S-expression does not start with a function! (type=%d)", f->type);
         lval_del(f); lval_del(v);
         return err;
     }
