@@ -28,12 +28,34 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
+/*
+def {fun} (\ {args body} {def (head args) (\ (tail args) body)})
+fun {unpack f xs} {eval (join (list f) xs)}
+fun {pack f & xs} {f xs}
+def {uncurry} pack
+def {curry} unpack
+curry + {5 6 7}
+uncurry head 5 6 7
+*/
 TESTMETHOD(test_currying) {
     lenv *e = lenv_new();
     assert_repr(e, "def {fun} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
     assert_repr(e, "fun {unpack f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "fun {pack f & xs} {f xs}", "()");
+    assert_repr(e, "def {uncurry} pack", "()");
     assert_repr(e, "def {curry} unpack", "()");
     assert_repr(e, "curry + {5 6 7}", "18");
+    assert_repr(e, "uncurry head 5 6 7", "{5}");
+    assert_repr(e, "def {add-uncurried} +", "()");
+    assert_repr(e, "def {add-curried} (curry +)", "()");
+    assert_repr(e, "add-curried {5 6 7}", "18");
+    assert_repr(e, "add-uncurried 5 6 7", "18");
+
+    assert_repr(e, "def {head-curried} head", "()");
+    assert_repr(e, "head-curried {5 6 7}", "{5}");
+//    assert_repr(e, "def {head-uncurried} (uncurry head)", "()");
+//    assert_repr(e, "def {head-uncurried} {uncurry head}", "()");
+//    assert_repr(e, "head-uncurried 5 6 7", "{5}");
     lenv_del(e);
 }
 TESTMETHOD(test_fun) {
@@ -41,6 +63,7 @@ TESTMETHOD(test_fun) {
     assert_repr(e, "def {fun} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
     assert_repr(e, "fun {add-together x y} {+ x y}", "()");
     assert_repr(e, "add-together 1 2", "3");
+    assert_error(e, "add-together 1 2 3", LERR_INVALID_OPERAND);
     lenv_del(e);
 }
 TESTMETHOD(test_lambda) {

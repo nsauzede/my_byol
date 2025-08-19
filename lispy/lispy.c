@@ -102,9 +102,8 @@ lval *lval_err(int errcode, const char *fmt, ...) {
     *ret = (lval){LVAL_ERR,.err=err,.errcode=errcode};
     return ret;
 }
-lval *lval_errcode(int errcode) {
-    return lval_err(errcode, 0);
-}
+#define lval_err_oper(fmt, ...) lval_err(LERR_INVALID_OPERAND,fmt,##__VA_ARGS__)
+#define lval_errcode(errcode) lval_err(errcode,0)
 lval *lval_num(long num) {
     lval *ret = malloc(sizeof(lval));
     *ret = (lval){LVAL_NUM,.num=num};
@@ -172,7 +171,7 @@ void lval_del(lval *v) {
     free(v);
 }
 lval *lval_copy(lval *v) {
-    lval *x = malloc(sizeof(lval));
+    lval *x = calloc(1, sizeof(lval));
     x->type = v->type;
     switch (v->type) {
         case LVAL_ERR:x->err = strdup(v->err);break;
@@ -339,8 +338,7 @@ void lenv_put(lenv *e, lval *k, lval *v) {
     int len = sizeof(lval*) * (e->count + 1);
     e->syms = realloc(e->syms, len);
     e->vals = realloc(e->vals, len);
-    e->syms[e->count] = malloc(strlen(k->sym)+1);
-    strcpy(e->syms[e->count], k->sym);
+    e->syms[e->count] = strdup(k->sym);
     e->vals[e->count] = lval_copy(v);
     e->count++;
 }
@@ -662,7 +660,7 @@ lval *builtin_var(lenv *e, lval *v, char *func) {
         if (!strcmp(func, "def")) {
             lval **pitem = lenv_find(e, syms->cell[i]);
             if (pitem && (*pitem)->type == LVAL_FUN) {
-                lval *err = lval_err(LERR_INVALID_OPERAND, "Can't override builtin symbol '%s'!",syms->cell[i]->sym);
+                lval *err = lval_err_oper("Can't override builtin symbol '%s'!",syms->cell[i]->sym);
                 lval_del(v);
                 return err;
             }
@@ -744,7 +742,7 @@ lval *builtin(lenv *e, lval *v, char *func) {
     else if (!strcmp("init", func)) { return builtin_init(e, v); }
     else if (strstr("+-/*%^ min max", func)) { return builtin_op(e, v, func); }
     lval_del(v);
-    return lval_err(LERR_INVALID_OPERAND, "Unknown builtin function '%s'!", func);
+    return lval_err_oper("Unknown builtin function '%s'!", func);
 }
 lval *lval_call(lenv *e, lval *f, lval *v) {
     if (f->builtin) { return f->builtin(e, v); }
@@ -753,14 +751,34 @@ lval *lval_call(lenv *e, lval *f, lval *v) {
     while (v->count) {
         if (!f->formals->count) {
             lval_del(v);
-            return lval_err(LERR_INVALID_OPERAND, "Function passed many arguments. Got %d, expected %d.", given, total);
+            return lval_err_oper("Function passed too many arguments. Got %d, expected %d.", given, total);
         }
         lval *sym = lval_pop(f->formals, 0);
+        if (!strcmp(sym->sym, "&")) {
+            if (f->formals->count != 1) {
+                lval_del(v);
+                return lval_err_oper("Function format invalid. Symbol '&' not followed by single symbol.");
+            }
+            lval *nsym = lval_pop(f->formals, 0);
+            lenv_put(f->env, nsym, builtin_list(e, v));
+            lval_del(sym); lval_del(nsym);
+            break;
+        }
         lval *val = lval_pop(v, 0);
         lenv_put(f->env, sym, val);
         lval_del(sym); lval_del(val);
     }
     lval_del(v);
+    if (f->formals->count > 0 && !strcmp(f->formals->cell[0]->sym, "&")) {
+        if (f->formals->count != 2) {
+            return lval_err_oper("Function format invalid. Symbol '&' not followed by single symbol.");
+        }
+        lval_del(lval_pop(f->formals, 0));
+        lval *sym = lval_pop(f->formals, 0);
+        lval *val = lval_qexpr();
+        lenv_put(f->env, sym, val);
+        lval_del(sym); lval_del(val);
+    }
     if (!f->formals->count) { /* All formals were bound: evaluate */
         f->env->par = e;
         return builtin_eval(f->env, lval_add(lval_sexpr(), lval_copy(f->body)));
@@ -782,7 +800,7 @@ lval *lval_eval_sexpr(lenv *e, lval *v) {
     if (v->count == 1) return lval_take(v, 0);
     lval *f = lval_pop(v, 0);
     if (f->type != LVAL_FUN) {
-        lval *err = lval_err(LERR_INVALID_OPERAND, "S-expression does not start with a function! (type=%d)", f->type);
+        lval *err = lval_err_oper("S-expression does not start with a function! (type=%d)", f->type);
         lval_del(f); lval_del(v);
         return err;
     }
