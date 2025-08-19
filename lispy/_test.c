@@ -3,15 +3,15 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-void assert_repr_lval(lval *v, const char *expected) {
+void assert_repr_lval(lval *v, const char *expected, const char *input) {
     ASSERT(!!v);
     char *repr = lval_repr(v);
-    EXPECT_EQ(expected, repr);
+    EXPECT_EQ(expected, repr, input);
     free(repr);
 }
 void assert_repr_(int read_not_eval, lenv *e, char *input, const char *expected) {
     lval *res = read_not_eval ? lread(input) : eval(e, input);
-    assert_repr_lval(res, expected);
+    assert_repr_lval(res, expected, input);
     lval_del(res);
 }
 #define assert_repr(e,input,expected) assert_repr_(0,e,input,expected)
@@ -28,15 +28,23 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
-/*
-def {fun_} (\ {args body} {def (head args) (\ (tail args) body)})
-fun_ {unpack f xs} {eval (join (list f) xs)}
-fun_ {pack f & xs} {f xs}
-def {uncurry} pack
-def {curry} unpack
-curry + {5 6 7}
-uncurry head 5 6 7
-*/
+TESTMETHOD(test_ord) {
+    lenv *e = lenv_new();
+    assert_repr(e, "> 10 5", "1");
+    assert_repr(e, "> 5 10", "0");
+    assert_repr(e, "<= 88 5", "0");
+    assert_repr(e, "== 5 6", "0");
+    assert_repr(e, "== 5 {}", "0");
+    assert_repr(e, "== 1 1", "1");
+    assert_repr(e, "!= {} 56", "1");
+    assert_repr(e, "== {1 2 3 {5 6}} {1   2  3   {5 6}}", "1");
+    assert_repr(e, "def {x y} 100 200", "()");
+    assert_repr(e, "== x y", "0");
+    assert_repr(e, "!= x y", "1");
+    assert_repr(e, "if (== x y) {+ x y} {- x y}", "-100");
+    assert_repr(e, "if (!= x y) {+ x y} {- x y}", "300");
+    lenv_del(e);
+}
 TESTMETHOD(test_currying) {
     lenv *e = lenv_new();
     assert_repr(e, "def {fun_} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
@@ -127,11 +135,11 @@ TESTMETHOD(test_env) {
     lval *v2 = lval_num(666);
     lenv_put(e, k2, v);
     res = lenv_get(e, k);
-    assert_repr_lval(res, "42");
+    assert_repr_lval(res, "42", 0);
     lval_del(res);
     lenv_put(e, k2, v2);
     res = lenv_get(e, k);
-    assert_repr_lval(res, "666");
+    assert_repr_lval(res, "666", 0);
     lval_del(res);
     lval_del(v2);
     lval_del(v);

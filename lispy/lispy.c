@@ -554,6 +554,52 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
     lval_del(v);
     return x;
 }
+lval *builtin_ord(lenv *e, lval *v, char *op) {
+    LASSERT_NUM(op, v, 2);
+    LASSERT_ITYPE(op, v, 0, LVAL_NUM);
+    LASSERT_ITYPE(op, v, 0, LVAL_NUM);
+    int x = v->cell[0]->num, y = v->cell[1]->num, z = 0;
+    lval_del(v);
+    if (!strcmp(op, ">")) { z = x > y; }
+    else if (!strcmp(op, "<=")) { z = x <= y; }
+    else if (!strcmp(op, "==")) { z = x == y; }
+    else if (!strcmp(op, "!=")) { z = x != y; }
+    return lval_num(z);
+}
+lval *builtin_gt(lenv *e, lval *v) { return builtin_ord(e, v, ">"); }
+lval *builtin_le(lenv *e, lval *v) { return builtin_ord(e, v, "<="); }
+int lval_eq(lval *x, lval *y) {
+    if (x->type != y->type) return 0;
+    switch (x->type) {
+        case LVAL_NUM:return x->num == y->num;
+        case LVAL_SEXPR:
+        case LVAL_QEXPR:
+            if (x->count != y->count) return 0;
+            for (int i = 0; i < x->count; i++) {
+                if (!lval_eq(x->cell[i], y->cell[i])) return 0;
+            }
+            return 1;
+        default:TODO();break;
+    }
+    return 0;
+}
+lval *builtin_cmp(lenv *e, lval *v, char *op) {
+    LASSERT_NUM(op, v, 2);
+    int eq = lval_eq(v->cell[0], v->cell[1]), ret = 0;
+    lval_del(v);
+    if (!strcmp(op, "==")) {
+        ret = eq;
+    } else if (!strcmp(op, "!=")) {
+        ret = !eq;
+    }
+    return lval_num(ret);
+}
+lval *builtin_eq_(lenv *e, lval *v) {
+    return builtin_cmp(e, v, "==");
+}
+lval *builtin_ne_(lenv *e, lval *v) {
+    return builtin_cmp(e, v, "!=");
+}
 void lenv_add_builtin(lenv *e, char *name, lbuiltin builtin) {
     lval *k = lval_sym(name);
     lval *v = lval_builtin(builtin, name);
@@ -728,6 +774,16 @@ lval *builtin_fun(lenv *e, lval *v) {
     lval_del(fname);
     return lval_sexpr();
 }
+lval *builtin_if(lenv *e, lval *v) {
+    LASSERT_NUM("if", v, 3);
+    LASSERT_ITYPE("if", v, 0, LVAL_NUM);
+    LASSERT_ITYPE("if", v, 1, LVAL_QEXPR);
+    LASSERT_ITYPE("if", v, 2, LVAL_QEXPR);
+    int cond = v->cell[0]->num;
+    lval *x = lval_take(v, cond ? 1 : 2);
+    x->type = LVAL_SEXPR;
+    return lval_eval(e, x);
+}
 void lenv_add_builtins(lenv *e) {
     if (e->count > 0) {
         printf("%s: There are already %d items in environment\n", __func__, e->count);
@@ -741,6 +797,10 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "^", builtin_pow_);
     lenv_add_builtin(e, "min", builtin_min_);
     lenv_add_builtin(e, "max", builtin_max_);
+    lenv_add_builtin(e, ">", builtin_gt);
+    lenv_add_builtin(e, "<=", builtin_le);
+    lenv_add_builtin(e, "==", builtin_eq_);
+    lenv_add_builtin(e, "!=", builtin_ne_);
     lenv_add_builtin(e, "list", builtin_list);
     lenv_add_builtin(e, "eval", builtin_eval);
     lenv_add_builtin(e, "head", builtin_head);
@@ -755,6 +815,7 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "exit", builtin_exit);
     lenv_add_builtin(e, "\\", builtin_lambda);
     lenv_add_builtin(e, "fun", builtin_fun);
+    lenv_add_builtin(e, "if", builtin_if);
 }
 lval *builtin(lenv *e, lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(e, v); }
