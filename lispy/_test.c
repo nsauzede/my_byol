@@ -85,14 +85,14 @@ TESTMETHOD(test_env) {
     lval_del(k);
     lenv_del(e);
 }
-static lval *lfun1(lenv *e, lval *v) { return 0; }
+static lval *lbuiltin1(lenv *e, lval *v) { return 0; }
 TESTMETHOD(test_copy) {
     lval *err = lval_err(0, "err");
     lval *err2 = lval_copy(err);
     EXPECT_EQ(err->err, err2->err);
     lval_del(err2);
     lval_del(err);
-    lval *builtin1 = lval_fun(&lfun1, "buitin1");
+    lval *builtin1 = lval_builtin(&lbuiltin1, "builtin1");
     lval *builtin2 = lval_copy(builtin1);
     EXPECT_EQ((void*)builtin1->builtin, builtin2->builtin);
     lval_del(builtin2);
@@ -103,7 +103,7 @@ TESTMETHOD(test_copy) {
     lval_del(num2);
     lval_del(num);
 }
-TESTMETHOD(test_fun) {
+TESTMETHOD(test_builtin) {
     lenv *e = lenv_new();
     assert_repr(e, "+", "<function '+'>");
     assert_repr(e, "eval (head {5 10 11 15})", "5");

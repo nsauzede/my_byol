@@ -116,7 +116,7 @@ lval *lval_sym(char *sym) {
     strcpy(ret->sym, sym);
     return ret;
 }
-lval *lval_fun(lbuiltin builtin, char *sym) {
+lval *lval_builtin(lbuiltin builtin, char *sym) {
     lval *ret = malloc(sizeof(lval));
     *ret = (lval){LVAL_FUN,.builtin=builtin,.sym=strdup(sym)};
     return ret;
@@ -557,7 +557,7 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
 }
 void lenv_add_builtin(lenv *e, char *name, lbuiltin builtin) {
     lval *k = lval_sym(name);
-    lval *v = lval_fun(builtin, name);
+    lval *v = lval_builtin(builtin, name);
     lenv_put(e, k, v);
     lval_del(k); lval_del(v);
 }
