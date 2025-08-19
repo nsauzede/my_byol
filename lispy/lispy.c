@@ -5,11 +5,11 @@
 #define TODO() do{printf("%s: TODO\n", __func__);BRK();exit(66);}while(0)
 #define FIXME() do{printf("%s: FIXME\n", __func__);BRK();exit(66);}while(0)
 #define LASSERT(v, cond, fmt, ...) do {if (!(cond)){lval *err = lval_err(LERR_INVALID_OPERAND, fmt, ##__VA_ARGS__);lval_del(v); return err;}} while(0)
-#define LASSERT_NUM(fun,v,n) LASSERT(v,v->count==n,"Function '%s' requires exactly %d argument%s! (%d)",fun,n,n>1?"s":"",v->count)
-#define LASSERT_MIN(fun,v,n) LASSERT(v,v->count>=n,"Function '%s' requires at least %d argument%s! (%d)",fun,n,n>1?"s":"",v->count)
-#define LASSERT_INUM(fun,v,i,n) LASSERT(v,v->cell[i]->count==n,"Function '%s' argument %d size must be exactly %d! (%d)",fun,i,n,v->cell[i]->count)
-#define LASSERT_IMIN(fun,v,i,n) LASSERT(v,v->cell[i]->count>=n,"Function '%s' argument %d size must be at least %d! (%d)",fun,i,n,v->cell[i]->count)
-#define LASSERT_ITYPE(fun,v,i,t) LASSERT(v,v->cell[i]->type==t,"Function '%s' argument %d type must be %s! (%s)",fun,i,ltype_name(t),ltype_name(v->cell[i]->type))
+#define LASSERT_NUM(builtin,v,n) LASSERT(v,v->count==n,"Function '%s' requires exactly %d argument%s! (%d)",builtin,n,n>1?"s":"",v->count)
+#define LASSERT_MIN(builtin,v,n) LASSERT(v,v->count>=n,"Function '%s' requires at least %d argument%s! (%d)",builtin,n,n>1?"s":"",v->count)
+#define LASSERT_INUM(builtin,v,i,n) LASSERT(v,v->cell[i]->count==n,"Function '%s' argument %d size must be exactly %d! (%d)",builtin,i,n,v->cell[i]->count)
+#define LASSERT_IMIN(builtin,v,i,n) LASSERT(v,v->cell[i]->count>=n,"Function '%s' argument %d size must be at least %d! (%d)",builtin,i,n,v->cell[i]->count)
+#define LASSERT_ITYPE(builtin,v,i,t) LASSERT(v,v->cell[i]->type==t,"Function '%s' argument %d type must be %s! (%s)",builtin,i,ltype_name(t),ltype_name(v->cell[i]->type))
 const char *lispy_grammar = "\
         number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
@@ -30,12 +30,18 @@ typedef enum {
     LERR_LAST} lerr_t;
 struct lval {
     lval_type_t type;
+    /* Basic */
     long num;
     double flt;
     char *err;
     lerr_t errcode;
     char *sym;
-    lbuiltin fun;
+    /* Function */
+    lbuiltin builtin;
+    lenv *env;
+    lval *formals;
+    lval *body;
+    /* Expression */
     int count;
     struct lval **cell;
 };
@@ -106,9 +112,9 @@ lval *lval_sym(char *sym) {
     strcpy(ret->sym, sym);
     return ret;
 }
-lval *lval_fun(lbuiltin fun, char *sym) {
+lval *lval_fun(lbuiltin builtin, char *sym) {
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_FUN,.fun=fun,.sym=strdup(sym)};
+    *ret = (lval){LVAL_FUN,.builtin=builtin,.sym=strdup(sym)};
     return ret;
 }
 lval *lval_sexpr(void) {
@@ -157,7 +163,7 @@ lval *lval_copy(lval *v) {
         case LVAL_NUM:x->num = v->num;break;
         case LVAL_FLT:x->flt = v->flt;break;
         case LVAL_FUN:
-            x->fun = v->fun;
+            x->builtin = v->builtin;
             /* fall through LVAL_SYM */
         case LVAL_SYM:
             x->sym = strdup(v->sym);break;
@@ -499,9 +505,9 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
     lval_del(v);
     return x;
 }
-void lenv_add_builtin(lenv *e, char *name, lbuiltin fun) {
+void lenv_add_builtin(lenv *e, char *name, lbuiltin builtin) {
     lval *k = lval_sym(name);
-    lval *v = lval_fun(fun, name);
+    lval *v = lval_fun(builtin, name);
     lenv_put(e, k, v);
     lval_del(k); lval_del(v);
 }
@@ -683,7 +689,7 @@ lval *lval_eval_sexpr(lenv *e, lval *v) {
         lval_del(f); lval_del(v);
         return err;
     }
-    lval *result = f->fun(e, v);
+    lval *result = f->builtin(e, v);
     lval_del(f);
     return result;
 }

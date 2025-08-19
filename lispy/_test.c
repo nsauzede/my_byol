@@ -82,11 +82,11 @@ TESTMETHOD(test_copy) {
     EXPECT_EQ(err->err, err2->err);
     lval_del(err2);
     lval_del(err);
-    lval *fun = lval_fun(&lfun1, "lfun1");
-    lval *fun2 = lval_copy(fun);
-    EXPECT_EQ((void*)fun->fun, fun2->fun);
-    lval_del(fun2);
-    lval_del(fun);
+    lval *builtin1 = lval_fun(&lfun1, "buitin1");
+    lval *builtin2 = lval_copy(builtin1);
+    EXPECT_EQ((void*)builtin1->builtin, builtin2->builtin);
+    lval_del(builtin2);
+    lval_del(builtin1);
     lval *num = lval_num(42);
     lval *num2 = lval_copy(num);
     EXPECT_EQ(num->num, num2->num);
