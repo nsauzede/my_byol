@@ -64,6 +64,20 @@ TESTMETHOD(test_fun) {
     assert_repr(e, "fun {add-together x y} {+ x y}", "()");
     assert_repr(e, "add-together 1 2", "3");
     assert_error(e, "add-together 1 2 3", LERR_INVALID_OPERAND);
+
+    assert_repr(e, "fun {unpack f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "fun {first x} {eval (head x)}", "()");
+    assert_repr(e, "first {10 11 12}", "10");
+    assert_repr(e, "fun {second x} {eval (head (tail x))}", "()");
+    assert_repr(e, "second {10 11 12}", "11");
+    assert_repr(e, "- 5 3", "2");
+    assert_repr(e, "- 3 5", "-2");
+    assert_repr(e, "fun {swap f x y} {f y x}", "()");
+    assert_repr(e, "swap - 5 3", "-2");
+    assert_repr(e, "fun {double x} {* 2 x}", "()");
+    assert_repr(e, "double 5", "10");
+    assert_repr(e, "fun {compute x y} {double (swap - x y)}", "()");
+    assert_repr(e, "compute 10 5", "-10");
     lenv_del(e);
 }
 TESTMETHOD(test_lambda) {
