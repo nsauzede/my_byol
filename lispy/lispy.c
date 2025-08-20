@@ -23,7 +23,7 @@ typedef struct lenv lenv;
 typedef lval *(*lbuiltin)(lenv *, lval *);
 typedef enum {
     LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
-    LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT } lval_type_t;
+    LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT, LVAL_BOOL } lval_type_t;
 typedef enum {
     LERR_UNSPECIFIED, LERR_FIRST = LERR_UNSPECIFIED,
         LERR_PARSE_ERROR, LERR_BAD_NUM, LERR_BAD_FLT,
@@ -70,6 +70,7 @@ const char *ltype_name(int t) {
         case LVAL_SEXPR:return "S-Expression";
         case LVAL_QEXPR:return "Q-Expression";
         case LVAL_FLT:return "Float";
+        case LVAL_BOOL:return "Boolean";
         default: return "Unknown?";
     }
 }
@@ -110,6 +111,11 @@ lval *lval_num(long num) {
     *ret = (lval){LVAL_NUM,.num=num};
     return ret;
 }
+lval *lval_bool(long num) {
+    lval *ret = malloc(sizeof(lval));
+    *ret = (lval){LVAL_BOOL,.num=num};
+    return ret;
+}
 lval *lval_sym(char *sym) {
     lval *ret = malloc(sizeof(lval));
     *ret = (lval){LVAL_SYM,.sym=malloc(strlen(sym) + 1)};
@@ -147,6 +153,7 @@ void lval_del(lval *v) {
     switch (v->type) {
         case LVAL_NUM:
         case LVAL_FLT:
+        case LVAL_BOOL:
             break;
         case LVAL_FUN:
             if (!v->builtin) {
@@ -176,6 +183,7 @@ lval *lval_copy(lval *v) {
     x->type = v->type;
     switch (v->type) {
         case LVAL_ERR:x->err = strdup(v->err);break;
+        case LVAL_BOOL:/* fall through LVAL_NUM */
         case LVAL_NUM:x->num = v->num;break;
         case LVAL_FLT:x->flt = v->flt;break;
         case LVAL_FUN:
@@ -237,6 +245,7 @@ void lval_expr_repr(char **s, int *slen, lval *v, char open, char close) {
 void lval_repr_(char **s, int *slen, lval *v) {
     if (!v) return;
     switch (v->type) {
+        case LVAL_BOOL:sappendf(s, slen, "%s", v->num?"true":"false");break;
         case LVAL_NUM:sappendf(s, slen, "%li", v->num);break;
         case LVAL_FUN:
             if (v->builtin) {
@@ -516,6 +525,34 @@ lval *builtin_div_or_fail(lval *x, lval *y) {
     }
     return fail;
 }
+lval *builtin_unary_logic(lenv *e, lval *v, char *op) {
+    LASSERT_NUM(op, v, 1);
+    int val = 0;
+    switch (v->cell[0]->type) {
+        case LVAL_BOOL:
+        case LVAL_NUM:
+            val = v->cell[0]->num;
+            break;
+        case LVAL_SEXPR:
+            val = !!v->cell[0]->count;
+            break;
+        default: {
+            char *repr = lval_repr(v->cell[0]);
+            const char *type = ltype_name(v->cell[0]->type);
+            lval_del(v);
+            lval *err = lval_err_oper("Unary logic op '%s' expects Number! (%s) (%s)", op, type, repr);
+            free(repr);
+            return err;
+        }
+    }
+    lval_del(v);
+//    LASSERT_ITYPE(op, v, 0, LVAL_NUM);
+    int ret = !val;
+    if (!strcmp(op, "!")) {
+        ret = !val;
+    } else { return lval_err_oper("Unkown unary logic op '%s'!", op); }
+    return lval_bool(ret);
+}
 lval *builtin_op(lenv *e, lval *v, char *op) {
     int flt = 0;
     if (v->cell[0]->type == LVAL_FLT) { flt = 1; }
@@ -524,15 +561,6 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
         else { LASSERT_ITYPE(op, v, i, LVAL_NUM); }
     }
     lval *x = lval_pop(v, 0);
-    if (!strcmp(op, "!")) {
-        int remaining = v->count;
-        int type = x->type;
-        int ret = !x->num;
-        lval_del(v); lval_del(x);
-        if (remaining > 0) { return lval_err_oper("Unary operator '%s' requires only one argument!", op); }
-        if (type != LVAL_NUM) { return lval_err_oper("Unary operator '%s' requires Number argument!", op); }
-        return lval_num(ret);
-    }
     if (!strcmp(op, "-") && v->count == 0) builtin_neg(x);
     while (v->count > 0) {
         lval *y = lval_pop(v, 0);
@@ -577,7 +605,7 @@ lval *builtin_ord(lenv *e, lval *v, char *op) {
     else if (!strcmp(op, "||")) { z = x || y; }
     else if (!strcmp(op, "&&")) { z = x && y; }
     else { return lval_err_oper("Unknown op '%s'!", op); }
-    return lval_num(z);
+    return lval_bool(z);
 }
 lval *builtin_gt(lenv *e, lval *v) { return builtin_ord(e, v, ">"); }
 lval *builtin_le(lenv *e, lval *v) { return builtin_ord(e, v, "<="); }
@@ -607,7 +635,7 @@ lval *builtin_cmp(lenv *e, lval *v, char *op) {
     } else if (!strcmp(op, "!=")) {
         ret = !eq;
     }
-    return lval_num(ret);
+    return lval_bool(ret);
 }
 lval *builtin_eq_(lenv *e, lval *v) {
     return builtin_cmp(e, v, "==");
@@ -624,6 +652,12 @@ void lenv_add_builtin(lenv *e, char *name, lbuiltin builtin) {
 void lenv_add_num(lenv *e, char *name, int num) {
     lval *k = lval_sym(name);
     lval *v = lval_num(num);
+    lenv_put(e, k, v);
+    lval_del(k); lval_del(v);
+}
+void lenv_add_bool(lenv *e, char *name, int num) {
+    lval *k = lval_sym(name);
+    lval *v = lval_bool(num);
     lenv_put(e, k, v);
     lval_del(k); lval_del(v);
 }
@@ -652,7 +686,7 @@ lval *builtin_max_(lenv *e, lval *v) {
     return builtin_op(e, v, "max");
 }
 lval *builtin_not(lenv *e, lval *v) {
-    return builtin_op(e, v, "!");
+    return builtin_unary_logic(e, v, "!");
 }
 lval *builtin_list(lenv *e, lval *v) {
     v->type = LVAL_QEXPR;
@@ -796,7 +830,7 @@ lval *builtin_fun(lenv *e, lval *v) {
 }
 lval *builtin_if(lenv *e, lval *v) {
     LASSERT_NUM("if", v, 3);
-    LASSERT_ITYPE("if", v, 0, LVAL_NUM);
+    LASSERT_ITYPE("if", v, 0, LVAL_BOOL);
     LASSERT_ITYPE("if", v, 1, LVAL_QEXPR);
     LASSERT_ITYPE("if", v, 2, LVAL_QEXPR);
     int cond = v->cell[0]->num;
@@ -839,8 +873,8 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "\\", builtin_lambda);
     lenv_add_builtin(e, "fun", builtin_fun);
     lenv_add_builtin(e, "if", builtin_if);
-    lenv_add_num(e, "true", 1);
-    lenv_add_num(e, "false", 0);
+    lenv_add_bool(e, "true", 1);
+    lenv_add_bool(e, "false", 0);
 }
 lval *builtin(lenv *e, lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(e, v); }
