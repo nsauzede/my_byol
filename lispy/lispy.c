@@ -15,9 +15,10 @@ const char *lispy_grammar = "\
         float   : /-?[0-9]+[.][0-9]+/ ;\
         symbol  : /[a-zA-Z0-9_+\\-*\\/^%\\\\=<>!&|]+/ ;\
         string  : /\"(\\\\.|[^\"])*\"/ ;\
+        comment : /;[^\\r\\n]*/ ;\
         sexpr   : '(' <expr>* ')' ;\
         qexpr   : '{' <expr>* '}' ;\
-        expr    : <float> | <number> | <symbol> | <string> | <sexpr> | <qexpr> ;\
+        expr    : <float> | <number> | <symbol> | <string> | <comment> | <sexpr> | <qexpr> ;\
         lispy   : /^/ <expr>* /$/ ;";
 typedef struct lval lval;
 typedef struct lenv lenv;
@@ -416,6 +417,7 @@ lval *lval_read(mpc_ast_t *a) {
         ret = lval_qexpr();
     }
     for (int i = 0; i < a->children_num; i++) {
+        if (strstr(a->children[i]->tag, "comment")) { continue; }
         if (!strcmp(a->children[i]->contents, "(")
             ||!strcmp(a->children[i]->contents, ")")
             ||!strcmp(a->children[i]->contents, "{")
@@ -439,12 +441,13 @@ void *parse_lispy(const char *s) {
     mpc_parser_t *Float = mpc_new("float");
     mpc_parser_t *Symbol = mpc_new("symbol");
     mpc_parser_t *String = mpc_new("string");
+    mpc_parser_t *Comment = mpc_new("comment");
     mpc_parser_t *Sexpr = mpc_new("sexpr");
     mpc_parser_t *Qexpr = mpc_new("qexpr");
     mpc_parser_t *Expr = mpc_new("expr");
     mpc_parser_t *Lispy = mpc_new("lispy");
     mpca_lang(MPCA_LANG_DEFAULT, lispy_grammar,
-        Number, Float, Symbol, String, Sexpr, Qexpr, Expr, Lispy
+        Number, Float, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy
     );
     void *res = 0;
     mpc_result_t r;
@@ -454,7 +457,7 @@ void *parse_lispy(const char *s) {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
     }
-    mpc_cleanup(8, Number, Float, Symbol, String, Sexpr, Qexpr, Expr, Lispy);
+    mpc_cleanup(9, Number, Float, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
     return res;
 }
 lval *lval_pop(lval *v, int i) {
