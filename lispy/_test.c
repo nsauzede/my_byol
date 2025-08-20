@@ -3,17 +3,18 @@
 #undef main
 /***************************************************************/
 #include "ut/ut.h"
-void assert_repr_lval(lval *v, const char *expected, const char *input) {
+void assert_repr_lval_(lval *v, const char *expected, const char *input) {
     ASSERT(!!v);
     char *repr = lval_repr(v);
-    EXPECT_EQ(expected, repr, input);
+    EXPECT_EQ(repr, expected, input);
     free(repr);
 }
-void assert_repr_(int read_not_eval, lenv *e, char *input, const char *expected) {
+void assert_repr_(int read_not_eval, lenv *e, const char *input, const char *expected) {
     lval *res = read_not_eval ? lread(input) : eval(e, input);
-    assert_repr_lval(res, expected, input);
+    assert_repr_lval_(res, expected, input);
     lval_del(res);
 }
+#define assert_repr_lval(v,expected) assert_repr_lval_(v,expected,JOIN2(v,expected))
 #define assert_repr(e,input,expected) assert_repr_(0,e,input,expected)
 #define assert_repr_noeval(e,input,expected) assert_repr_(1,e,input,expected)
 void assert_error_lval(lval *v, int expected) {
@@ -21,13 +22,24 @@ void assert_error_lval(lval *v, int expected) {
     EXPECT_EQ(LVAL_ERR, v->type);
     EXPECT_EQ(expected, v->errcode);
 }
-void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
+void assert_error_(int read_not_eval, lenv *e, const char *input, int expected) {
     lval *res = read_not_eval ? lread(input) : eval(e,input);
     assert_error_lval(res, expected);
     lval_del(res);
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
+TESTMETHOD(test_str) {
+    lenv *e = lenv_new();
+    assert_repr(e, "\"hello\"", "\"hello\"");
+    assert_repr(e, "\"hello\\n\"", "\"hello\\n\"");
+    assert_repr(e, "\"hello\\\"\"", "\"hello\\\"\"");
+    assert_repr(e, "head {\"hello\" \"world\"}", "{\"hello\"}");
+    assert_repr(e, "eval (head {\"hello\" \"world\"})", "\"hello\"");
+    assert_repr(e, "def {a b} \"foo\" \"bar\"", "()");
+    assert_repr(e, "b", "\"bar\"");
+    lenv_del(e);
+}
 TESTMETHOD(test_logic) {
     lenv *e = lenv_new();
     assert_repr(e, "def {a b} 1 0", "()");
@@ -170,15 +182,15 @@ TESTMETHOD(test_env) {
     lval *res = lenv_get(e, k);
     assert_error_lval(res, LERR_UNBOUND_SYM);
     lval_del(res);
-    lval *v = lval_num(42);
+    lval *v = lval_num(42+0);
     lval *v2 = lval_num(666);
     lenv_put(e, k2, v);
     res = lenv_get(e, k);
-    assert_repr_lval(res, "42", 0);
+    assert_repr_lval(res, "42");
     lval_del(res);
     lenv_put(e, k2, v2);
     res = lenv_get(e, k);
-    assert_repr_lval(res, "666", 0);
+    assert_repr_lval(res, "666");
     lval_del(res);
     lval_del(v2);
     lval_del(v);

@@ -14,15 +14,16 @@ const char *lispy_grammar = "\
         number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
         symbol  : /[a-zA-Z0-9_+\\-*\\/^%\\\\=<>!&|]+/ ;\
+        string  : /\"(\\\\.|[^\"])*\"/ ;\
         sexpr   : '(' <expr>* ')' ;\
         qexpr   : '{' <expr>* '}' ;\
-        expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
+        expr    : <float> | <number> | <symbol> | <string> | <sexpr> | <qexpr> ;\
         lispy   : /^/ <expr>* /$/ ;";
 typedef struct lval lval;
 typedef struct lenv lenv;
 typedef lval *(*lbuiltin)(lenv *, lval *);
 typedef enum {
-    LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_FUN,
+    LVAL_ERR, LVAL_NUM, LVAL_SYM, LVAL_STR, LVAL_FUN,
     LVAL_SEXPR, LVAL_QEXPR, LVAL_FLT, LVAL_BOOL } lval_type_t;
 typedef enum {
     LERR_UNSPECIFIED, LERR_FIRST = LERR_UNSPECIFIED,
@@ -66,13 +67,14 @@ const char *ltype_name(int t) {
         case LVAL_ERR:return "Error";
         case LVAL_NUM:return "Number";
         case LVAL_SYM:return "Symbol";
+        case LVAL_STR:return "String";
         case LVAL_FUN:return "Function";
         case LVAL_SEXPR:return "S-Expression";
         case LVAL_QEXPR:return "Q-Expression";
         case LVAL_FLT:return "Float";
         case LVAL_BOOL:return "Boolean";
-        default: return "Unknown?";
     }
+    return "Unknown?";
 }
 lenv *lenv_new(void);
 lenv *lenv_copy(lenv* e);
@@ -118,7 +120,12 @@ lval *lval_bool(long num) {
 }
 lval *lval_sym(char *sym) {
     lval *ret = malloc(sizeof(lval));
-    *ret = (lval){LVAL_SYM,.sym=malloc(strlen(sym) + 1)};
+    *ret = (lval){LVAL_SYM,.sym=strdup(sym)};
+    return ret;
+}
+lval *lval_str(char *sym) {
+    lval *ret = malloc(sizeof(lval));
+    *ret = (lval){LVAL_STR,.sym=malloc(strlen(sym) + 1)};
     strcpy(ret->sym, sym);
     return ret;
 }
@@ -163,6 +170,7 @@ void lval_del(lval *v) {
                 break;
             } /* fall-through to LVAL_SYM */
         case LVAL_SYM:
+        case LVAL_STR:
             free(v->sym);
             break;
         case LVAL_ERR:
@@ -195,6 +203,7 @@ lval *lval_copy(lval *v) {
                 break;
             } /* fall through LVAL_SYM */
         case LVAL_SYM:
+        case LVAL_STR:
             x->sym = strdup(v->sym);break;
         case LVAL_SEXPR:
         case LVAL_QEXPR:
@@ -259,6 +268,7 @@ void lval_repr_(char **s, int *slen, lval *v) {
             }
             break;
         case LVAL_FLT:sappendf(s, slen, "%.15g", v->flt);break;
+        case LVAL_STR:/* fall through LVAL_SYM */
         case LVAL_SYM:sappendf(s, slen, "%s", v->sym);break;
         case LVAL_ERR:sappendf(s, slen, "%s", v->err);break;
         case LVAL_SEXPR:lval_expr_repr(s, slen, v, '(', ')');break;
@@ -396,6 +406,9 @@ lval *lval_read(mpc_ast_t *a) {
     if (strstr(a->tag, "symbol")) {
         return lval_sym(a->contents);
     }
+    if (strstr(a->tag, "string")) {
+        return lval_str(a->contents);
+    }
     lval *ret = NULL;
     if (!strcmp(a->tag, ">")||strstr(a->tag, "sexpr")) {
         ret = lval_sexpr();
@@ -412,6 +425,7 @@ lval *lval_read(mpc_ast_t *a) {
         }
         ret = lval_add(ret, lval_read(a->children[i]));
     }
+    if (!ret) ret = lval_errcode(LERR_PARSE_ERROR);
     return ret;
 }
 int ast_count(int count, mpc_ast_t *a) {
@@ -420,16 +434,17 @@ int ast_count(int count, mpc_ast_t *a) {
     }
     return count + 1;
 }
-void *parse_lispy(char *s) {
+void *parse_lispy(const char *s) {
     mpc_parser_t *Number = mpc_new("number");
     mpc_parser_t *Float = mpc_new("float");
     mpc_parser_t *Symbol = mpc_new("symbol");
+    mpc_parser_t *String = mpc_new("string");
     mpc_parser_t *Sexpr = mpc_new("sexpr");
     mpc_parser_t *Qexpr = mpc_new("qexpr");
     mpc_parser_t *Expr = mpc_new("expr");
     mpc_parser_t *Lispy = mpc_new("lispy");
     mpca_lang(MPCA_LANG_DEFAULT, lispy_grammar,
-        Number, Float, Symbol, Sexpr, Qexpr, Expr, Lispy
+        Number, Float, Symbol, String, Sexpr, Qexpr, Expr, Lispy
     );
     void *res = 0;
     mpc_result_t r;
@@ -439,7 +454,7 @@ void *parse_lispy(char *s) {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
     }
-    mpc_cleanup(7, Number, Float, Symbol, Sexpr, Qexpr, Expr, Lispy);
+    mpc_cleanup(8, Number, Float, Symbol, String, Sexpr, Qexpr, Expr, Lispy);
     return res;
 }
 lval *lval_pop(lval *v, int i) {
@@ -546,7 +561,6 @@ lval *builtin_unary_logic(lenv *e, lval *v, char *op) {
         }
     }
     lval_del(v);
-//    LASSERT_ITYPE(op, v, 0, LVAL_NUM);
     int ret = !val;
     if (!strcmp(op, "!")) {
         ret = !val;
@@ -953,7 +967,7 @@ lval *lval_eval_sexpr(lenv *e, lval *v) {
     lval_del(f);
     return result;
 }
-lval *lread(char *s) {
+lval *lread(const char *s) {
     mpc_result_t r;
     lval *res = NULL;
     r.output = parse_lispy(s);
@@ -965,7 +979,7 @@ lval *lread(char *s) {
     }
     return res;
 }
-lval *eval(lenv *e, char *s) {
+lval *eval(lenv *e, const char *s) {
     lval *res = lread(s);
     if (res->type == LVAL_ERR) return res;
     return lval_eval_sexpr(e, res);
