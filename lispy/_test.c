@@ -56,56 +56,56 @@ TESTMETHOD(test_ord) {
 TESTMETHOD(test_currying) {
     lenv *e = lenv_new();
     assert_repr(e, "def {fun_} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
-    assert_repr(e, "fun_ {unpack f xs} {eval (join (list f) xs)}", "()");
-    assert_repr(e, "fun_ {pack f & xs} {f xs}", "()");
-    assert_repr(e, "def {uncurry} pack", "()");
-    assert_repr(e, "def {curry} unpack", "()");
-    assert_repr(e, "curry + {5 6 7}", "18");
-    assert_repr(e, "uncurry head 5 6 7", "{5}");
-    assert_repr(e, "def {add-uncurried} +", "()");
-    assert_repr(e, "def {add-curried} (curry +)", "()");
-    assert_repr(e, "add-curried {5 6 7}", "18");
-    assert_repr(e, "add-uncurried 5 6 7", "18");
+    assert_repr(e, "fun_ {unpack_ f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "fun_ {pack_ f & xs} {f xs}", "()");
+    assert_repr(e, "def {uncurry_} pack_", "()");
+    assert_repr(e, "def {curry_} unpack_", "()");
+    assert_repr(e, "curry_ + {5 6 7}", "18");
+    assert_repr(e, "uncurry_ head 5 6 7", "{5}");
+    assert_repr(e, "def {add-uncurried_} +", "()");
+    assert_repr(e, "def {add-curried_} (curry_ +)", "()");
+    assert_repr(e, "add-curried_ {5 6 7}", "18");
+    assert_repr(e, "add-uncurried_ 5 6 7", "18");
 
-    assert_repr(e, "def {head-curried} head", "()");
-    assert_repr(e, "head-curried {5 6 7}", "{5}");
-//    assert_repr(e, "def {head-uncurried} (uncurry head)", "()");
-//    assert_repr(e, "def {head-uncurried} {uncurry head}", "()");
-//    assert_repr(e, "head-uncurried 5 6 7", "{5}");
+    assert_repr(e, "def {head-curried_} head", "()");
+    assert_repr(e, "head-curried_ {5 6 7}", "{5}");
+//    assert_repr(e, "def {head-uncurried_} (uncurry_ head)", "()");
+//    assert_repr(e, "def {head-uncurried_} {uncurry_ head}", "()");
+//    assert_repr(e, "head-uncurried_ 5 6 7", "{5}");
     lenv_del(e);
 }
 TESTMETHOD(test_fun) {
     lenv *e = lenv_new();
     assert_repr(e, "def {fun_} (\\ {args body} {def (head args) (\\ (tail args) body)})", "()");
-    assert_repr(e, "fun_ {add-together x y} {+ x y}", "()");
-    assert_repr(e, "add-together 1 2", "3");
-    assert_error(e, "add-together 1 2 3", LERR_INVALID_OPERAND);
+    assert_repr(e, "fun_ {add-together_ x y} {+ x y}", "()");
+    assert_repr(e, "add-together_ 1 2", "3");
+    assert_error(e, "add-together_ 1 2 3", LERR_INVALID_OPERAND);
 
-    assert_repr(e, "fun_ {unpack f xs} {eval (join (list f) xs)}", "()");
-    assert_repr(e, "fun_ {first x} {eval (head x)}", "()");
-    assert_repr(e, "first {10 11 12}", "10");
-    assert_repr(e, "fun_ {second x} {eval (head (tail x))}", "()");
-    assert_repr(e, "second {10 11 12}", "11");
+    assert_repr(e, "fun_ {unpack_ f xs} {eval (join (list f) xs)}", "()");
+    assert_repr(e, "fun_ {first_ x} {eval (head x)}", "()");
+    assert_repr(e, "first_ {10 11 12}", "10");
+    assert_repr(e, "fun_ {second_ x} {eval (head (tail x))}", "()");
+    assert_repr(e, "second_ {10 11 12}", "11");
     assert_repr(e, "- 5 3", "2");
     assert_repr(e, "- 3 5", "-2");
-    assert_repr(e, "fun_ {swap f x y} {f y x}", "()");
-    assert_repr(e, "swap - 5 3", "-2");
-    assert_repr(e, "fun_ {double x} {* 2 x}", "()");
-    assert_repr(e, "double 5", "10");
-    assert_repr(e, "fun_ {compute x y} {double (swap - x y)}", "()");
-    assert_repr(e, "compute 10 5", "-10");
-    assert_repr(e, "fun {third x} {eval (head (tail (tail x)))}", "()");
-    assert_repr(e, "third {10 11 12}", "12");
+    assert_repr(e, "fun_ {swap_ f x y} {f y x}", "()");
+    assert_repr(e, "swap_ - 5 3", "-2");
+    assert_repr(e, "fun_ {double_ x} {* 2 x}", "()");
+    assert_repr(e, "double_ 5", "10");
+    assert_repr(e, "fun_ {compute_ x y} {double_ (swap_ - x y)}", "()");
+    assert_repr(e, "compute_ 10 5", "-10");
+    assert_repr(e, "fun_ {third_ x} {eval (head (tail (tail x)))}", "()");
+    assert_repr(e, "third_ {10 11 12 13}", "12");
     lenv_del(e);
 }
 TESTMETHOD(test_lambda) {
     lenv *e = lenv_new();
     assert_repr(e, "\\ {x y} {+ x y}", "(\\ {x y} {+ x y})");
-    assert_repr(e, "def {add-mul} (\\ {x y} {+ x (* x y)})", "()");
-    assert_repr(e, "add-mul 10 20", "210");
-    assert_repr(e, "add-mul 10", "(\\ {y} {+ x (* x y)})");
-    assert_repr(e, "def {add-mul-ten} (add-mul 10)", "()");
-    assert_repr(e, "add-mul-ten 50", "510");
+    assert_repr(e, "def {add-mul_} (\\ {x y} {+ x (* x y)})", "()");
+    assert_repr(e, "add-mul_ 10 20", "210");
+    assert_repr(e, "add-mul_ 10", "(\\ {y} {+ x (* x y)})");
+    assert_repr(e, "def {add-mul-ten_} (add-mul_ 10)", "()");
+    assert_repr(e, "add-mul-ten_ 50", "510");
     lenv_del(e);
 }
 TESTMETHOD(test_def) {
