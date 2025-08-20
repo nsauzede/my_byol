@@ -762,10 +762,6 @@ lval *builtin_fun(lenv *e, lval *v) {
     }
     lval *formals = lval_pop(v, 0);
     lval *fname = lval_pop(formals, 0);
-    printf("%s: fname=%s\n", __func__, fname->sym);
-    for (int i = 0; i < formals->count; i++) {
-        printf("%s:  formal %d: %s\n", __func__, i, formals->cell[i]->sym);
-    }
     lval *body = lval_pop(v, 0);
     lval_del(v);
     lval *lamb = lval_lambda(formals, body);

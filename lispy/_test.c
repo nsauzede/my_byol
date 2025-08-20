@@ -28,6 +28,14 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
+TESTMETHOD(test_recurse) {
+    lenv *e = lenv_new();
+    assert_repr(e, "fun {len_ l} {if (== l {}) {0} {+ 1 (len (tail l))}}", "()");
+    assert_repr(e, "len_ {1 2 3 4}", "4");
+    assert_repr(e, "fun {reverse_ l} {if (== l {}) {{}} {join (reverse_ (tail l)) (head l)}}", "()");
+    assert_repr(e, "reverse_ {5 6 7 8}", "{8 7 6 5}");
+    lenv_del(e);
+}
 TESTMETHOD(test_ord) {
     lenv *e = lenv_new();
     assert_repr(e, "> 10 5", "1");
