@@ -13,7 +13,7 @@
 const char *lispy_grammar = "\
         number  : /-?[0-9]+/ ;\
         float   : /-?[0-9]+[.][0-9]+/ ;\
-        symbol  : /[a-zA-Z0-9_+\\-*\\/^%\\\\=<>!&]+/ ;\
+        symbol  : /[a-zA-Z0-9_+\\-*\\/^%\\\\=<>!&|]+/ ;\
         sexpr   : '(' <expr>* ')' ;\
         qexpr   : '{' <expr>* '}' ;\
         expr    : <float> | <number> | <symbol> | <sexpr> | <qexpr> ;\
@@ -524,6 +524,15 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
         else { LASSERT_ITYPE(op, v, i, LVAL_NUM); }
     }
     lval *x = lval_pop(v, 0);
+    if (!strcmp(op, "!")) {
+        int remaining = v->count;
+        int type = x->type;
+        int ret = !x->num;
+        lval_del(v); lval_del(x);
+        if (remaining > 0) { return lval_err_oper("Unary operator '%s' requires only one argument!", op); }
+        if (type != LVAL_NUM) { return lval_err_oper("Unary operator '%s' requires Number argument!", op); }
+        return lval_num(ret);
+    }
     if (!strcmp(op, "-") && v->count == 0) builtin_neg(x);
     while (v->count > 0) {
         lval *y = lval_pop(v, 0);
@@ -549,6 +558,7 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
         else if (!strcmp(op, "^")) builtin_pow(x, y);
         else if (!strcmp(op, "min")) builtin_min(x, y);
         else if (!strcmp(op, "max")) builtin_max(x, y);
+        else { return lval_err_oper("Unknown op '%s'!", op); }
         lval_del(y);
     }
     lval_del(v);
@@ -564,10 +574,15 @@ lval *builtin_ord(lenv *e, lval *v, char *op) {
     else if (!strcmp(op, "<=")) { z = x <= y; }
     else if (!strcmp(op, "==")) { z = x == y; }
     else if (!strcmp(op, "!=")) { z = x != y; }
+    else if (!strcmp(op, "||")) { z = x || y; }
+    else if (!strcmp(op, "&&")) { z = x && y; }
+    else { return lval_err_oper("Unknown op '%s'!", op); }
     return lval_num(z);
 }
 lval *builtin_gt(lenv *e, lval *v) { return builtin_ord(e, v, ">"); }
 lval *builtin_le(lenv *e, lval *v) { return builtin_ord(e, v, "<="); }
+lval *builtin_or(lenv *e, lval *v) { return builtin_ord(e, v, "||"); }
+lval *builtin_and(lenv *e, lval *v) { return builtin_ord(e, v, "&&"); }
 int lval_eq(lval *x, lval *y) {
     if (x->type != y->type) return 0;
     switch (x->type) {
@@ -606,6 +621,12 @@ void lenv_add_builtin(lenv *e, char *name, lbuiltin builtin) {
     lenv_put(e, k, v);
     lval_del(k); lval_del(v);
 }
+void lenv_add_num(lenv *e, char *name, int num) {
+    lval *k = lval_sym(name);
+    lval *v = lval_num(num);
+    lenv_put(e, k, v);
+    lval_del(k); lval_del(v);
+}
 lval *builtin_add_(lenv *e, lval *v) {
     return builtin_op(e, v, "+");
 }
@@ -629,6 +650,9 @@ lval *builtin_min_(lenv *e, lval *v) {
 }
 lval *builtin_max_(lenv *e, lval *v) {
     return builtin_op(e, v, "max");
+}
+lval *builtin_not(lenv *e, lval *v) {
+    return builtin_op(e, v, "!");
 }
 lval *builtin_list(lenv *e, lval *v) {
     v->type = LVAL_QEXPR;
@@ -793,10 +817,13 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "^", builtin_pow_);
     lenv_add_builtin(e, "min", builtin_min_);
     lenv_add_builtin(e, "max", builtin_max_);
+    lenv_add_builtin(e, "!", builtin_not);
     lenv_add_builtin(e, ">", builtin_gt);
     lenv_add_builtin(e, "<=", builtin_le);
     lenv_add_builtin(e, "==", builtin_eq_);
     lenv_add_builtin(e, "!=", builtin_ne_);
+    lenv_add_builtin(e, "||", builtin_or);
+    lenv_add_builtin(e, "&&", builtin_and);
     lenv_add_builtin(e, "list", builtin_list);
     lenv_add_builtin(e, "eval", builtin_eval);
     lenv_add_builtin(e, "head", builtin_head);
@@ -812,6 +839,8 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "\\", builtin_lambda);
     lenv_add_builtin(e, "fun", builtin_fun);
     lenv_add_builtin(e, "if", builtin_if);
+    lenv_add_num(e, "true", 1);
+    lenv_add_num(e, "false", 0);
 }
 lval *builtin(lenv *e, lval *v, char *func) {
     if (!strcmp("list", func)) { return builtin_list(e, v); }

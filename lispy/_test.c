@@ -28,12 +28,43 @@ void assert_error_(int read_not_eval, lenv *e, char *input, int expected) {
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
+TESTMETHOD(test_logic) {
+    lenv *e = lenv_new();
+    assert_repr(e, "def {a b} 1 0", "()");
+    assert_repr(e, "if (== a b) {1} {2}", "2");
+    assert_repr(e, "|| a b", "1");
+    assert_repr(e, "&& a b", "0");
+    assert_repr(e, "|| (- 1 1) (+ 1 -1)", "0");
+    assert_repr(e, "! 0", "1");
+    assert_repr(e, "! 1", "0");
+    assert_error(e, "! 1 2", LERR_INVALID_OPERAND);
+    assert_error(e, "! 3.14", LERR_INVALID_OPERAND);
+    assert_repr(e, "fun {or_ a b} {|| a b}", "()");
+    assert_repr(e, "or_ a b", "1");
+    assert_repr(e, "fun {and_ a b} {&& a b}", "()");
+    assert_repr(e, "and_ a b", "0");
+    assert_repr(e, "fun {not_ a} {! a}", "()");
+    assert_repr(e, "not_ 0", "1");
+    assert_repr(e, "not_ 1", "0");
+    assert_repr(e, "! true", "0");
+    assert_repr(e, "! false", "1");
+//    assert_repr(e, "! ()", "1");
+//    assert_repr(e, "! (! ())", "0");
+    lenv_del(e);
+}
 TESTMETHOD(test_recurse) {
     lenv *e = lenv_new();
     assert_repr(e, "fun {len_ l} {if (== l {}) {0} {+ 1 (len (tail l))}}", "()");
     assert_repr(e, "len_ {1 2 3 4}", "4");
     assert_repr(e, "fun {reverse_ l} {if (== l {}) {{}} {join (reverse_ (tail l)) (head l)}}", "()");
     assert_repr(e, "reverse_ {5 6 7 8}", "{8 7 6 5}");
+    assert_repr(e, "fun {nth_ n l} {if (== n 0) {eval (head l)} {nth_ (- n 1) (tail l)}}", "()");
+    assert_repr(e, "nth_ 1 {5 6 7 8}", "6");
+    assert_repr(e, "fun {in_ n l} {if (== 0 (len_ l)) {0} {if (== n (eval (head l))) {1} {in_ n (tail l)}}}", "()");
+    assert_repr(e, "in_ 42 {5 6 7 8}", "0");
+    assert_repr(e, "in_ 42 {5 6 42 8}", "1");
+//    assert_repr(e, "fun {last_ l} {if (== n 0) {eval (head l)} {nth_ (- n 1) (tail l)}}", "()");
+//    assert_repr(e, "last_ 1 {5 6 7 8}", "8");
     lenv_del(e);
 }
 TESTMETHOD(test_ord) {
