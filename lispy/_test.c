@@ -29,6 +29,12 @@ void assert_error_(int read_not_eval, lenv *e, const char *input, int expected) 
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
 #define assert_error_noeval(e,input,expected) assert_error_(1,e,input,expected)
+TESTMETHOD(test_print) {
+    lenv *e = lenv_new();
+    assert_repr(e, "print \"---hello world---\"", "()");
+    assert_repr(e, "(print 1 2 3 4)", "()");
+    lenv_del(e);
+}
 TESTMETHOD(test_comment) {
     lenv *e = lenv_new();
     assert_repr(e, "\"hello\" ; world", "\"hello\"");

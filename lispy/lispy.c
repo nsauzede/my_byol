@@ -223,7 +223,7 @@ int sappendf(char **p, int *plen, const char *fmt, ...) {
     va_start(args, fmt);
     int n = vsnprintf(NULL, 0, fmt, args);
     va_end(args);
-    if (n <= 0) { perror("vsnprintf"); return -1; }
+    if (n < 0) { perror("vsnprintf"); return -1; }
     char *s = calloc(n + 1, 1);
     if (!s) { perror("calloc"); return -1; }
     va_start(args, fmt);
@@ -855,6 +855,15 @@ lval *builtin_if(lenv *e, lval *v) {
     x->type = LVAL_SEXPR;
     return lval_eval(e, x);
 }
+lval *builtin_print(lenv *e, lval *v) {
+    for (int i = 0; i < v->count; i++) {
+        if (i > 0) putchar(' ');
+        lval_print(v->cell[i]);
+    }
+    putchar('\n');
+    lval_del(v);
+    return lval_sexpr();
+}
 void lenv_add_builtins(lenv *e) {
     if (e->count > 0) {
         printf("%s: There are already %d items in environment\n", __func__, e->count);
@@ -890,21 +899,9 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "\\", builtin_lambda);
     lenv_add_builtin(e, "fun", builtin_fun);
     lenv_add_builtin(e, "if", builtin_if);
+    lenv_add_builtin(e, "print", builtin_print);
     lenv_add_bool(e, "true", 1);
     lenv_add_bool(e, "false", 0);
-}
-lval *builtin(lenv *e, lval *v, char *func) {
-    if (!strcmp("list", func)) { return builtin_list(e, v); }
-    else if (!strcmp("eval", func)) { return builtin_eval(e, v); }
-    else if (!strcmp("head", func)) { return builtin_head(e, v); }
-    else if (!strcmp("tail", func)) { return builtin_tail(e, v); }
-    else if (!strcmp("join", func)) { return builtin_join(e, v); }
-    else if (!strcmp("len", func)) { return builtin_len(e, v); }
-    else if (!strcmp("cons", func)) { return builtin_cons(e, v); }
-    else if (!strcmp("init", func)) { return builtin_init(e, v); }
-    else if (strstr("+-/*%^ min max", func)) { return builtin_op(e, v, func); }
-    lval_del(v);
-    return lval_err_oper("Unknown builtin function '%s'!", func);
 }
 lval *lval_call(lenv *e, lval *f, lval *v) {
     if (f->builtin) { return f->builtin(e, v); }
@@ -985,7 +982,9 @@ lval *lread(const char *s) {
 lval *eval(lenv *e, const char *s) {
     lval *res = lread(s);
     if (res->type == LVAL_ERR) return res;
-    return lval_eval_sexpr(e, res);
+    lval *ret = lval_eval_sexpr(e, res);
+    if (!ret) ret = lval_sym("");
+    return ret;
 }
 char *eval_print(lenv *e, char *s) {
     lval *ret = eval(e, s);
