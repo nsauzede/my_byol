@@ -1,0 +1,5 @@
+;; Some comment
+(def {fu bar} 1 2) ;; will reference those later
+(print "hello hello.lspy")
+(print "fu is" fu "and bar is" bar)
+(error "here is an error from hello.lspy")

@@ -56,12 +56,12 @@ struct lenv {
 };
 const char *lerrors[] = {
     [LERR_UNSPECIFIED] = "(unspecified error)",
-    [LERR_PARSE_ERROR] = "Parse Error!",
-    [LERR_BAD_NUM] = "Invalid Number!",
-    [LERR_BAD_FLT] = "Invalid Float!",
-    [LERR_INVALID_OPERAND] = "Invalid Operand!",
-    [LERR_DIV_ZERO] = "Division By Zero!",
-    [LERR_UNBOUND_SYM] = "Unbound Symbol!",
+    [LERR_PARSE_ERROR] = "Parse Error",
+    [LERR_BAD_NUM] = "Invalid Number",
+    [LERR_BAD_FLT] = "Invalid Float",
+    [LERR_INVALID_OPERAND] = "Invalid Operand",
+    [LERR_DIV_ZERO] = "Division By Zero",
+    [LERR_UNBOUND_SYM] = "Unbound Symbol",
 };
 const char *ltype_name(int t) {
     switch (t) {
@@ -269,9 +269,9 @@ void lval_repr_(char **s, int *slen, lval *v) {
             }
             break;
         case LVAL_FLT:sappendf(s, slen, "%.15g", v->flt);break;
-        case LVAL_STR:/* fall through LVAL_SYM */
         case LVAL_SYM:sappendf(s, slen, "%s", v->sym);break;
-        case LVAL_ERR:sappendf(s, slen, "%s", v->err);break;
+        case LVAL_STR:sappendf(s, slen, "\"%s\"", v->sym);break;
+        case LVAL_ERR:sappendf(s, slen, "Error: %s", v->err);break;
         case LVAL_SEXPR:lval_expr_repr(s, slen, v, '(', ')');break;
         case LVAL_QEXPR:lval_expr_repr(s, slen, v, '{', '}');break;
     }
@@ -347,7 +347,7 @@ lval *lenv_get(lenv *e, lval *k) {
     if (e->par) {
         return lenv_get(e->par, k);
     }
-    return lval_err(LERR_UNBOUND_SYM, "Unbound Symbol '%s'!", k->sym);
+    return lval_err(LERR_UNBOUND_SYM, "Unbound Symbol '%s'", k->sym);
 }
 void lenv_put(lenv *e, lval *k, lval *v) {
     lval **pitem = lenv_find(e, k);
@@ -408,7 +408,13 @@ lval *lval_read(mpc_ast_t *a) {
         return lval_sym(a->contents);
     }
     if (strstr(a->tag, "string")) {
-        return lval_str(a->contents);
+        char *str = strdup(a->contents + 1);
+        int len = strlen(str);
+        if (len>1 && str[len - 1] == '"')
+            str[len - 1] = 0;
+        lval *ret = lval_str(str);
+        free(str);
+        return ret;
     }
     lval *ret = NULL;
     if (!strcmp(a->tag, ">")||strstr(a->tag, "sexpr")) {
@@ -436,19 +442,39 @@ int ast_count(int count, mpc_ast_t *a) {
     }
     return count + 1;
 }
-void *parse_lispy(const char *s) {
-    mpc_parser_t *Number = mpc_new("number");
-    mpc_parser_t *Float = mpc_new("float");
-    mpc_parser_t *Symbol = mpc_new("symbol");
-    mpc_parser_t *String = mpc_new("string");
-    mpc_parser_t *Comment = mpc_new("comment");
-    mpc_parser_t *Sexpr = mpc_new("sexpr");
-    mpc_parser_t *Qexpr = mpc_new("qexpr");
-    mpc_parser_t *Expr = mpc_new("expr");
-    mpc_parser_t *Lispy = mpc_new("lispy");
+mpc_parser_t *Number;
+mpc_parser_t *Float;
+mpc_parser_t *Symbol;
+mpc_parser_t *String;
+mpc_parser_t *Comment;
+mpc_parser_t *Sexpr;
+mpc_parser_t *Qexpr;
+mpc_parser_t *Expr;
+mpc_parser_t *Lispy = 0;
+void init_parse_lispy(void) {
+    if (!Lispy) {
+    Number = mpc_new("number");
+    Float = mpc_new("float");
+    Symbol = mpc_new("symbol");
+    String = mpc_new("string");
+    Comment = mpc_new("comment");
+    Sexpr = mpc_new("sexpr");
+    Qexpr = mpc_new("qexpr");
+    Expr = mpc_new("expr");
+    Lispy = mpc_new("lispy");
     mpca_lang(MPCA_LANG_DEFAULT, lispy_grammar,
         Number, Float, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy
     );
+    }
+}
+void clean_parse_lispy(void) {
+    if (Lispy) {
+        mpc_cleanup(9, Number, Float, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
+        Lispy = 0;
+    }
+}
+void *parse_lispy(const char *s) {
+    init_parse_lispy();
     void *res = 0;
     mpc_result_t r;
     if (mpc_parse("<stdin>", s, Lispy, &r)) {
@@ -457,7 +483,7 @@ void *parse_lispy(const char *s) {
         mpc_err_print(r.error);
         mpc_err_delete(r.error);
     }
-    mpc_cleanup(9, Number, Float, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
+    clean_parse_lispy();
     return res;
 }
 lval *lval_pop(lval *v, int i) {
@@ -567,7 +593,7 @@ lval *builtin_unary_logic(lenv *e, lval *v, char *op) {
     int ret = !val;
     if (!strcmp(op, "!")) {
         ret = !val;
-    } else { return lval_err_oper("Unkown unary logic op '%s'!", op); }
+    } else { return lval_err_oper("Unknown unary logic op '%s'", op); }
     return lval_bool(ret);
 }
 lval *builtin_op(lenv *e, lval *v, char *op) {
@@ -603,7 +629,7 @@ lval *builtin_op(lenv *e, lval *v, char *op) {
         else if (!strcmp(op, "^")) builtin_pow(x, y);
         else if (!strcmp(op, "min")) builtin_min(x, y);
         else if (!strcmp(op, "max")) builtin_max(x, y);
-        else { return lval_err_oper("Unknown op '%s'!", op); }
+        else { return lval_err_oper("Unknown op '%s'", op); }
         lval_del(y);
     }
     lval_del(v);
@@ -621,7 +647,7 @@ lval *builtin_ord(lenv *e, lval *v, char *op) {
     else if (!strcmp(op, "!=")) { z = x != y; }
     else if (!strcmp(op, "||")) { z = x || y; }
     else if (!strcmp(op, "&&")) { z = x && y; }
-    else { return lval_err_oper("Unknown op '%s'!", op); }
+    else { return lval_err_oper("Unknown op '%s'", op); }
     return lval_bool(z);
 }
 lval *builtin_gt(lenv *e, lval *v) { return builtin_ord(e, v, ">"); }
@@ -774,7 +800,7 @@ lval *builtin_var(lenv *e, lval *v, char *func) {
     lval *syms = v->cell[0];
     LASSERT_ITYPE(func, v, 0, LVAL_QEXPR);
     LASSERT_IMIN(func, v, 0, 1);
-    LASSERT(v, syms->count == (v->count - 1), "Function '%s' size mismatch: Q-expr=%d args=%d!", func, syms->count, v->count - 1);
+    LASSERT(v, syms->count == (v->count - 1), "Function '%s' size mismatch: Q-expr=%d args=%d", func, syms->count, v->count - 1);
     for (int i = 0; i < syms->count; i++) {
         LASSERT(v, syms->cell[i]->type == LVAL_SYM, "Function '%s' argument 0 cell %d type must be Symbol! (%s)", func, i, ltype_name(syms->cell[i]->type));
     }
@@ -782,7 +808,7 @@ lval *builtin_var(lenv *e, lval *v, char *func) {
         if (!strcmp(func, "def")) {
             lval **pitem = lenv_find(e, syms->cell[i]);
             if (pitem && (*pitem)->type == LVAL_FUN) {
-                lval *err = lval_err_oper("Can't override builtin symbol '%s'!",syms->cell[i]->sym);
+                lval *err = lval_err_oper("Can't override builtin symbol '%s'",syms->cell[i]->sym);
                 lval_del(v);
                 return err;
             }
@@ -864,6 +890,40 @@ lval *builtin_print(lenv *e, lval *v) {
     lval_del(v);
     return lval_sexpr();
 }
+lval *builtin_error(lenv *e, lval *v) {
+    LASSERT_NUM("error", v, 1);
+    LASSERT_ITYPE("error", v, 0, LVAL_STR);
+    lval *err = lval_err(0, v->cell[0]->sym);
+    lval_del(v);
+    return err;
+}
+lval *builtin_load(lenv *e, lval *v) {
+    LASSERT_NUM("load", v, 1);
+    LASSERT_ITYPE("load", v, 0, LVAL_STR);
+    mpc_result_t r;
+    init_parse_lispy();
+    lval *ret;
+    if (mpc_parse_contents(v->cell[0]->sym, Lispy, &r)) {
+        lval *expr = lval_read(r.output);
+        mpc_ast_delete(r.output);
+        while (expr->count) {
+            lval *x = lval_eval(e, lval_pop(expr, 0));
+            if (x->type == LVAL_ERR) lval_println(x);
+            lval_del(x);
+        }
+        lval_del(expr);
+        ret = lval_sexpr();
+    } else {
+        char *err_msg = mpc_err_string(r.error);
+        mpc_err_delete(r.error);
+        lval *err = lval_err(LERR_PARSE_ERROR, "Could not load: %s", err_msg);
+        free(err_msg);
+        ret = err;
+    }
+    lval_del(v);
+    clean_parse_lispy();
+    return ret;
+}
 void lenv_add_builtins(lenv *e) {
     if (e->count > 0) {
         printf("%s: There are already %d items in environment\n", __func__, e->count);
@@ -900,6 +960,9 @@ void lenv_add_builtins(lenv *e) {
     lenv_add_builtin(e, "fun", builtin_fun);
     lenv_add_builtin(e, "if", builtin_if);
     lenv_add_builtin(e, "print", builtin_print);
+    lenv_add_builtin(e, "error", builtin_error);
+    lenv_add_builtin(e, "load", builtin_load);
+
     lenv_add_bool(e, "true", 1);
     lenv_add_bool(e, "false", 0);
 }
@@ -994,10 +1057,16 @@ char *eval_print(lenv *e, char *s) {
     lval_del(ret);
     return res;
 }
-int main() {
+int main(int argc, char *argv[]) {
     char buf[512];
     lenv *e = lenv_new();
     g_exit = 0;
+    for (int i = 1; i < argc; i++) {
+        lval *args = lval_add(lval_sexpr(), lval_str(argv[i]));
+        lval *x = builtin_load(e, args);
+        if (x->type == LVAL_ERR) lval_println(x);
+        lval_del(x);
+    }
     while (!g_exit) {
         printf("lispy> ");
         if (!fgets(buf, sizeof(buf), stdin)) break;

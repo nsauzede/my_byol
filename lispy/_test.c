@@ -17,14 +17,14 @@ void assert_repr_(int read_not_eval, lenv *e, const char *input, const char *exp
 #define assert_repr_lval(v,expected) assert_repr_lval_(v,expected,JOIN2(v,expected))
 #define assert_repr(e,input,expected) assert_repr_(0,e,input,expected)
 #define assert_repr_noeval(e,input,expected) assert_repr_(1,e,input,expected)
-void assert_error_lval(lval *v, int expected) {
+void assert_error_lval(lval *v, int expected, const char *input) {
     ASSERT(!!v);
-    EXPECT_EQ(LVAL_ERR, v->type);
-    EXPECT_EQ(expected, v->errcode);
+    EXPECT_EQ(LVAL_ERR, v->type, input);
+    EXPECT_EQ(expected, v->errcode, input);
 }
 void assert_error_(int read_not_eval, lenv *e, const char *input, int expected) {
     lval *res = read_not_eval ? lread(input) : eval(e,input);
-    assert_error_lval(res, expected);
+    assert_error_lval(res, expected, input);
     lval_del(res);
 }
 #define assert_error(e,input,expected) assert_error_(0,e,input,expected)
@@ -33,6 +33,8 @@ TESTMETHOD(test_print) {
     lenv *e = lenv_new();
     assert_repr(e, "print \"---hello world---\"", "()");
     assert_repr(e, "(print 1 2 3 4)", "()");
+    assert_error(e, "error \"This is an error\"", 0);
+    assert_repr(e, "load \"lispy/hello.lspy\"", "()");
     lenv_del(e);
 }
 TESTMETHOD(test_comment) {
@@ -191,7 +193,7 @@ TESTMETHOD(test_env) {
     lval *k2 = lval_copy(k);
     EXPECT_EQ(k->sym, k2->sym);
     lval *res = lenv_get(e, k);
-    assert_error_lval(res, LERR_UNBOUND_SYM);
+    assert_error_lval(res, LERR_UNBOUND_SYM, 0);
     lval_del(res);
     lval *v = lval_num(42+0);
     lval *v2 = lval_num(666);
